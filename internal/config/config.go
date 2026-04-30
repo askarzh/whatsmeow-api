@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -98,4 +99,31 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("unmarshal: %w", err)
 	}
 	return c, nil
+}
+
+func (c Config) Validate() error {
+	if c.Server.Bind != "127.0.0.1" && c.Server.Bind != "::1" && c.Auth.Token == "" {
+		return errors.New("auth.token is required when server.bind is not 127.0.0.1")
+	}
+	switch c.Storage.Backend {
+	case "sqlite":
+		// ok
+	case "postgres":
+		if c.Storage.PostgresDSN == "" {
+			return errors.New(`storage.postgres_dsn is required when storage.backend is "postgres"`)
+		}
+	default:
+		return errors.New(`storage.backend must be "sqlite" or "postgres"`)
+	}
+	switch c.Log.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return errors.New(`log.level must be one of debug, info, warn, error`)
+	}
+	switch c.Log.Format {
+	case "text", "json":
+	default:
+		return errors.New(`log.format must be "text" or "json"`)
+	}
+	return nil
 }

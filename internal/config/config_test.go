@@ -69,3 +69,65 @@ func TestEnvOverride(t *testing.T) {
 	assert.Equal(t, "from-env", c.Auth.Token)
 	assert.Equal(t, "json", c.Log.Format)
 }
+
+func TestValidate(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(*config.Config)
+		wantErr string
+	}{
+		{
+			name:    "ok defaults",
+			mutate:  func(c *config.Config) {},
+			wantErr: "",
+		},
+		{
+			name:    "non-localhost bind without token rejected",
+			mutate:  func(c *config.Config) { c.Server.Bind = "0.0.0.0" },
+			wantErr: "auth.token is required when server.bind is not 127.0.0.1",
+		},
+		{
+			name:    "non-localhost bind with token allowed",
+			mutate: func(c *config.Config) {
+				c.Server.Bind = "0.0.0.0"
+				c.Auth.Token = "x"
+			},
+			wantErr: "",
+		},
+		{
+			name:    "unknown storage backend rejected",
+			mutate:  func(c *config.Config) { c.Storage.Backend = "redis" },
+			wantErr: `storage.backend must be "sqlite" or "postgres"`,
+		},
+		{
+			name:    "postgres backend requires DSN",
+			mutate:  func(c *config.Config) { c.Storage.Backend = "postgres" },
+			wantErr: `storage.postgres_dsn is required when storage.backend is "postgres"`,
+		},
+		{
+			name:    "invalid log level rejected",
+			mutate:  func(c *config.Config) { c.Log.Level = "trace" },
+			wantErr: `log.level must be one of debug, info, warn, error`,
+		},
+		{
+			name:    "invalid log format rejected",
+			mutate:  func(c *config.Config) { c.Log.Format = "xml" },
+			wantErr: `log.format must be "text" or "json"`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := config.Load("")
+			require.NoError(t, err)
+			tc.mutate(&c)
+			err = c.Validate()
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+			}
+		})
+	}
+}
