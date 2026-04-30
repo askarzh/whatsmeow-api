@@ -49,3 +49,30 @@ func TestAuthEnabledRightToken(t *testing.T) {
 	mw(okHandler()).ServeHTTP(rr, req)
 	assert.Equal(t, http.StatusOK, rr.Code)
 }
+
+func TestAuthAcceptsLowercaseScheme(t *testing.T) {
+	mw := httpapi.RequireBearerToken("s3cret")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set("Authorization", "bearer s3cret")
+	mw(okHandler()).ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestAuthAcceptsUppercaseScheme(t *testing.T) {
+	mw := httpapi.RequireBearerToken("s3cret")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set("Authorization", "BEARER s3cret")
+	mw(okHandler()).ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusOK, rr.Code)
+}
+
+func TestAuthEnabledEmptyTokenAfterPrefix(t *testing.T) {
+	mw := httpapi.RequireBearerToken("s3cret")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set("Authorization", "Bearer ")
+	mw(okHandler()).ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusUnauthorized, rr.Code)
+}

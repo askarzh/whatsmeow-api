@@ -14,13 +14,11 @@ func RequireBearerToken(token string) func(http.Handler) http.Handler {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			h := r.Header.Get("Authorization")
-			const prefix = "Bearer "
-			if !strings.HasPrefix(h, prefix) {
+			got, ok := bearerToken(r.Header.Get("Authorization"))
+			if !ok {
 				WriteProblem(w, http.StatusUnauthorized, "auth.unauthorized", "missing bearer token")
 				return
 			}
-			got := h[len(prefix):]
 			if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
 				WriteProblem(w, http.StatusUnauthorized, "auth.unauthorized", "invalid bearer token")
 				return
@@ -28,4 +26,22 @@ func RequireBearerToken(token string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// bearerToken extracts the token value from an Authorization header. Returns
+// false if the header doesn't start with a case-insensitive "Bearer " scheme
+// or the token portion is empty. RFC 6750 §2.1.
+func bearerToken(h string) (string, bool) {
+	const prefix = "bearer "
+	if len(h) <= len(prefix) {
+		return "", false
+	}
+	if !strings.EqualFold(h[:len(prefix)], prefix) {
+		return "", false
+	}
+	tok := strings.TrimLeft(h[len(prefix):], " ")
+	if tok == "" {
+		return "", false
+	}
+	return tok, true
 }
