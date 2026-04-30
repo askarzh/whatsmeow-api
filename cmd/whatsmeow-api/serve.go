@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/askar/whatsmeow-api/internal/config"
-	"github.com/askar/whatsmeow-api/internal/logging"
-	httpapi "github.com/askar/whatsmeow-api/internal/transport/http"
+	"github.com/askarzh/whatsmeow-api/internal/config"
+	"github.com/askarzh/whatsmeow-api/internal/logging"
+	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
 	"github.com/spf13/cobra"
 )
 

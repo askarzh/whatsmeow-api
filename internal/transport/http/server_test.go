@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/askar/whatsmeow-api/internal/config"
-	httpapi "github.com/askar/whatsmeow-api/internal/transport/http"
+	"github.com/askarzh/whatsmeow-api/internal/config"
+	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

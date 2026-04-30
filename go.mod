@@ -1,4 +1,4 @@
-module github.com/askar/whatsmeow-api
+module github.com/askarzh/whatsmeow-api
 
 go 1.26.2
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/askar/whatsmeow-api/internal/config"
-	"github.com/askar/whatsmeow-api/internal/logging"
+	"github.com/askarzh/whatsmeow-api/internal/config"
+	"github.com/askarzh/whatsmeow-api/internal/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

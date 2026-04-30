@@ -6,7 +6,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/askar/whatsmeow-api/internal/config"
+	"github.com/askarzh/whatsmeow-api/internal/config"
 )
 
 func New(cfg config.LogConfig, out io.Writer) (*slog.Logger, error) {

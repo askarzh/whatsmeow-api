@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/askar/whatsmeow-api/internal/config"
+	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

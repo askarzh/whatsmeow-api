@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	httpapi "github.com/askar/whatsmeow-api/internal/transport/http"
+	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

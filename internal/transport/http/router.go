@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/askar/whatsmeow-api/internal/config"
+	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
