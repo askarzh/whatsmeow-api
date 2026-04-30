@@ -1,0 +1,20 @@
+data_dir = "./data"
+
+[server]
+bind = "127.0.0.1"
+port = 8080
+
+[auth]
+# Leave empty to disable auth (only safe when bound to localhost).
+token = ""
+
+[storage]
+# "sqlite" or "postgres"
+backend = "sqlite"
+sqlite_path = "./data/whatsmeow-api.db"
+# Used when backend = "postgres". For Supabase, use the connection-pooler DSN.
+postgres_dsn = ""
+
+[log]
+level = "info"   # debug | info | warn | error
+format = "text"  # text | json

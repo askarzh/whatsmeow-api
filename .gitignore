@@ -1,0 +1,25 @@
+# binaries
+/bin/
+/whatsmeow-api
+/cmd/whatsmeow-api/whatsmeow-api
+
+# data
+/data/
+*.db
+*.db-shm
+*.db-wal
+
+# config overrides
+/config.local.toml
+/.env
+/.env.*
+
+# editor / OS
+.idea/
+.vscode/
+.DS_Store
+
+# go
+*.test
+*.out
+coverage.txt
