@@ -18,3 +18,11 @@ postgres_dsn = ""
 [log]
 level = "info"   # debug | info | warn | error
 format = "text"  # text | json
+
+[events]
+# How long to retain SSE events for Last-Event-ID resume.
+retention_hours = 24
+
+[metrics]
+# Expose Prometheus /metrics. Off by default.
+enabled = false
