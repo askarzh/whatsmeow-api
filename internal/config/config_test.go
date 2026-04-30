@@ -56,3 +56,16 @@ format = "json"
 	assert.Equal(t, "debug", c.Log.Level)
 	assert.Equal(t, "json", c.Log.Format)
 }
+
+func TestEnvOverride(t *testing.T) {
+	t.Setenv("WMAPI_SERVER__PORT", "12345")
+	t.Setenv("WMAPI_AUTH__TOKEN", "from-env")
+	t.Setenv("WMAPI_LOG__FORMAT", "json")
+
+	c, err := config.Load("")
+	require.NoError(t, err)
+
+	assert.Equal(t, 12345, c.Server.Port)
+	assert.Equal(t, "from-env", c.Auth.Token)
+	assert.Equal(t, "json", c.Log.Format)
+}
