@@ -4,6 +4,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/knadh/koanf/parsers/toml/v2"
@@ -102,8 +103,8 @@ func Load(path string) (Config, error) {
 }
 
 func (c Config) Validate() error {
-	if c.Server.Bind != "127.0.0.1" && c.Server.Bind != "::1" && c.Auth.Token == "" {
-		return errors.New("auth.token is required when server.bind is not 127.0.0.1")
+	if !isLoopbackBind(c.Server.Bind) && c.Auth.Token == "" {
+		return errors.New("auth.token is required when server.bind is not a loopback address")
 	}
 	switch c.Storage.Backend {
 	case "sqlite":
@@ -126,4 +127,9 @@ func (c Config) Validate() error {
 		return errors.New(`log.format must be "text" or "json"`)
 	}
 	return nil
+}
+
+func isLoopbackBind(bind string) bool {
+	ip := net.ParseIP(bind)
+	return ip != nil && ip.IsLoopback()
 }

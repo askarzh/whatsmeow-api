@@ -84,7 +84,22 @@ func TestValidate(t *testing.T) {
 		{
 			name:    "non-localhost bind without token rejected",
 			mutate:  func(c *config.Config) { c.Server.Bind = "0.0.0.0" },
-			wantErr: "auth.token is required when server.bind is not 127.0.0.1",
+			wantErr: "auth.token is required when server.bind is not a loopback address",
+		},
+		{
+			name:    "ipv6 loopback ::1 without token allowed",
+			mutate:  func(c *config.Config) { c.Server.Bind = "::1" },
+			wantErr: "",
+		},
+		{
+			name:    "127.0.0.2 in loopback range without token allowed",
+			mutate:  func(c *config.Config) { c.Server.Bind = "127.0.0.2" },
+			wantErr: "",
+		},
+		{
+			name:    "hostname 'localhost' without token rejected",
+			mutate:  func(c *config.Config) { c.Server.Bind = "localhost" },
+			wantErr: "auth.token is required when server.bind is not a loopback address",
 		},
 		{
 			name:    "non-localhost bind with token allowed",
