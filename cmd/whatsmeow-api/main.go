@@ -3,9 +3,22 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "whatsmeow-api: not implemented yet — see docs/superpowers/specs/")
-	os.Exit(1)
+	root := &cobra.Command{
+		Use:           "whatsmeow-api",
+		Short:         "HTTP/SSE API daemon wrapping whatsmeow",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	root.PersistentFlags().String("config", "", "path to config TOML (optional)")
+	root.AddCommand(serveCmd())
+
+	if err := root.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 }
