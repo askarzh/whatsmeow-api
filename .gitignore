@@ -19,6 +19,9 @@
 .vscode/
 .DS_Store
 
+# worktrees
+/.worktrees/
+
 # go
 *.test
 *.out
