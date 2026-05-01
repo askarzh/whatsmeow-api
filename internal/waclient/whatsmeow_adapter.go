@@ -11,6 +11,10 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
+
+	// Database drivers — imported for side-effects so database/sql can find them.
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "modernc.org/sqlite"
 )
 
 // Adapter is the production WAClient backed by *whatsmeow.Client.
