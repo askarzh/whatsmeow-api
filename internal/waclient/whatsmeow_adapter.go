@@ -9,8 +9,11 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
 	// Database drivers — imported for side-effects so database/sql can find them.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -27,7 +30,8 @@ type Adapter struct {
 	loginInProgress bool
 	lastConnectedAt time.Time
 
-	pairCh chan string // signaled with outcome by event handler during phone pair
+	pairCh          chan string          // signaled with outcome by event handler during phone pair
+	incomingHandler func(IncomingMessage) // Plan 04
 }
 
 // NewAdapter constructs an Adapter. The container must already be initialized
@@ -100,6 +104,17 @@ func (a *Adapter) onEvent(raw any) {
 	case *events.PairError:
 		a.logger.Warn("wa pair error", "err", evt.Error.Error())
 		a.signalPair("err-" + evt.Error.Error())
+	case *events.Message:
+		incoming, ok := translateIncoming(evt)
+		if !ok {
+			return // protocol/system message; skip
+		}
+		a.mu.Lock()
+		h := a.incomingHandler
+		a.mu.Unlock()
+		if h != nil {
+			h(incoming)
+		}
 	}
 }
 
@@ -113,6 +128,54 @@ func (a *Adapter) signalPair(outcome string) {
 		case ch <- outcome:
 		default:
 		}
+	}
+}
+
+// translateIncoming converts a whatsmeow events.Message into our domain type.
+// Returns (_, false) for protocol/system events that have no text or media body,
+// and for self-sent (echo) messages so outgoing sends don't increment unread counts.
+func translateIncoming(evt *events.Message) (IncomingMessage, bool) {
+	if evt.Info.IsFromMe {
+		return IncomingMessage{}, false
+	}
+	kind, body, hasBody := messageKindAndBody(evt.Message)
+	if !hasBody {
+		return IncomingMessage{}, false
+	}
+	return IncomingMessage{
+		ID:        evt.Info.ID,
+		ChatJID:   evt.Info.Chat.String(),
+		ChatKind:  ChatKindFromJID(evt.Info.Chat.String()),
+		SenderJID: evt.Info.Sender.String(),
+		Timestamp: evt.Info.Timestamp,
+		Kind:      kind,
+		Body:      body,
+		PushName:  evt.Info.PushName,
+	}, true
+}
+
+// messageKindAndBody picks the relevant field out of a *waE2E.Message and
+// returns ("", "", false) for variants we don't persist (protocol/system, etc.).
+func messageKindAndBody(m *waE2E.Message) (string, string, bool) {
+	switch {
+	case m == nil:
+		return "", "", false
+	case m.Conversation != nil:
+		return "text", *m.Conversation, true
+	case m.ExtendedTextMessage != nil && m.ExtendedTextMessage.Text != nil:
+		return "text", *m.ExtendedTextMessage.Text, true
+	case m.ImageMessage != nil:
+		return "image", "", true
+	case m.VideoMessage != nil:
+		return "video", "", true
+	case m.AudioMessage != nil:
+		return "audio", "", true
+	case m.DocumentMessage != nil:
+		return "document", "", true
+	case m.StickerMessage != nil:
+		return "sticker", "", true
+	default:
+		return "", "", false
 	}
 }
 
@@ -303,6 +366,44 @@ func (a *Adapter) Close() error {
 		a.client.Disconnect()
 	}
 	return nil
+}
+
+// SendText sends a plain-text message to chatJID.
+func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+	msg := &waE2E.Message{
+		Conversation: proto.String(text),
+	}
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send message: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
+}
+
+// OnIncomingMessage registers a handler invoked once per incoming message
+// event, after translation into the domain type IncomingMessage. Setting nil
+// clears the handler. Calling this twice replaces the previous handler.
+func (a *Adapter) OnIncomingMessage(handler func(IncomingMessage)) {
+	a.mu.Lock()
+	a.incomingHandler = handler
+	a.mu.Unlock()
 }
 
 // compile-time interface check

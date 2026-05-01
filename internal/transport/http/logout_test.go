@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 	"github.com/stretchr/testify/assert"
@@ -18,6 +19,7 @@ func (f fakeLogoutSvc) Status(context.Context) (waclient.Status, error)         
 func (f fakeLogoutSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error)              { return nil, nil }
 func (f fakeLogoutSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) { return nil, nil }
 func (f fakeLogoutSvc) Logout(context.Context) error                                          { return f.err }
+func (f fakeLogoutSvc) SendText(context.Context, string, string) (store.Message, error)       { return store.Message{}, nil }
 
 var _ service.Service = fakeLogoutSvc{}
 
