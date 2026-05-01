@@ -37,6 +37,9 @@ func NewRouter(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(RequireBearerToken(d.Config.Auth.Token))
 			r.Method(http.MethodGet, "/status", StatusHandler(d.Service))
+			r.Method(http.MethodPost, "/login/qr", LoginQRHandler(d.Service))
+			r.Method(http.MethodPost, "/login/phone", LoginPhoneHandler(d.Service))
+			r.Method(http.MethodPost, "/logout", LogoutHandler(d.Service))
 		})
 	})
 
