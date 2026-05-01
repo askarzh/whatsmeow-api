@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/askarzh/whatsmeow-api/internal/config"
+	"github.com/askarzh/whatsmeow-api/internal/service"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -13,8 +14,9 @@ import (
 // Deps is the bundle of values the router depends on. Plan 02+ will
 // extend this with WAClient, Store, etc.
 type Deps struct {
-	Config config.Config
-	Logger *slog.Logger
+	Config  config.Config
+	Logger  *slog.Logger
+	Service service.Service
 }
 
 func NewRouter(d Deps) http.Handler {
