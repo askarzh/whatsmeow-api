@@ -138,20 +138,6 @@ func scanMessage(s scanner) (store.Message, error) {
 	return m, nil
 }
 
-func nullableString(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
-func ptrUnix(t *time.Time) any {
-	if t == nil {
-		return nil
-	}
-	return t.Unix()
-}
-
 // prefixCols rewrites a column list like "a, b, c" into "p.a, p.b, p.c".
 func prefixCols(cols, prefix string) string {
 	out := ""

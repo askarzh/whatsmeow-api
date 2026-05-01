@@ -12,8 +12,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-// Deps is the bundle of values the router depends on. Plan 02+ will
-// extend this with WAClient, Store, etc.
+// Deps is the bundle of values the router depends on.
 type Deps struct {
 	Config  config.Config
 	Logger  *slog.Logger

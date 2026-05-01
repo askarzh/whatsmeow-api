@@ -138,3 +138,55 @@ func TestMessageSoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
+
+func TestMessagePutIsUpsert(t *testing.T) {
+	ctx := context.Background()
+	b := newTestStore(t).Bundle()
+	chat := "c@s.whatsapp.net"
+	seedChat(t, b, chat)
+
+	ts := time.Unix(1000, 0).UTC()
+	require.NoError(t, b.Messages.Put(ctx, store.Message{
+		ID: "M1", ChatJID: chat, SenderJID: chat, Timestamp: ts, Kind: "text", Body: "old body",
+	}))
+	require.NoError(t, b.Messages.Put(ctx, store.Message{
+		ID: "M1", ChatJID: chat, SenderJID: chat, Timestamp: ts, Kind: "text", Body: "new body",
+	}))
+
+	got, err := b.Messages.Get(ctx, "M1")
+	require.NoError(t, err)
+	assert.Equal(t, "new body", got.Body)
+
+	// Search must reflect the updated body and not return the old one.
+	searchOld, err := b.Messages.Search(ctx, "old", 10)
+	require.NoError(t, err)
+	assert.Empty(t, searchOld, "old body should not appear in FTS after upsert")
+
+	searchNew, err := b.Messages.Search(ctx, "new", 10)
+	require.NoError(t, err)
+	require.Len(t, searchNew, 1)
+	assert.Equal(t, "M1", searchNew[0].ID)
+}
+
+func TestMessageSearchExcludesSoftDeleted(t *testing.T) {
+	ctx := context.Background()
+	b := newTestStore(t).Bundle()
+	chat := "c@s.whatsapp.net"
+	seedChat(t, b, chat)
+
+	require.NoError(t, b.Messages.Put(ctx, store.Message{
+		ID: "M1", ChatJID: chat, SenderJID: chat,
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "findable",
+	}))
+
+	// Confirm it's findable before deletion.
+	got, err := b.Messages.Search(ctx, "findable", 10)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+
+	// Soft-delete and re-search.
+	require.NoError(t, b.Messages.SoftDelete(ctx, "M1", time.Unix(2000, 0).UTC()))
+	got, err = b.Messages.Search(ctx, "findable", 10)
+	require.NoError(t, err)
+	assert.Empty(t, got, "soft-deleted messages must be excluded from search")
+}

@@ -21,3 +21,24 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// scanner matches both *sql.Row and *sql.Rows.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+// nullableString returns nil for an empty string (stored as SQL NULL).
+func nullableString(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+// ptrUnix returns nil if t is nil, otherwise the Unix timestamp.
+func ptrUnix(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.Unix()
+}

@@ -74,11 +74,6 @@ func (s *ChatStore) SetArchived(ctx context.Context, jid string, archived bool) 
 	return nil
 }
 
-// scanner matches both *sql.Row and *sql.Rows.
-type scanner interface {
-	Scan(dest ...any) error
-}
-
 func scanChat(s scanner) (store.Chat, error) {
 	var (
 		c           store.Chat
