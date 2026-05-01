@@ -6,8 +6,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 
 - **Plan 01 (Foundations)** shipped: daemon boots, loads config, logs structured output, serves `/v1/health` and `/v1/status`.
 - **Plan 02 (waclient + login)** shipped: real WhatsApp connection via whatsmeow, SSE-driven QR + phone-pair login (`/v1/login/qr`, `/v1/login/phone`), `/v1/logout`, auto-resume on startup, and CLI subcommands (`login qr`, `login phone <number>`, `status`, `logout`) that drive the daemon over its own API.
+- **Plan 03 (app store)** shipped: SQLite-backed persistence layer with seven tables (`chats`, `messages`, `messages_fts`, `contacts`, `media`, `events_log`, `kv`) and `golang-migrate`-driven schema migrations that auto-run on `serve`. No handlers read it yet; consumers arrive in Plan 04+.
 
-App-level chat/message storage and messaging endpoints land in Plan 03 / Plan 04.
+Messaging endpoints (send / receive / list / search) land in Plan 04+.
 
 ## Quick start
 
