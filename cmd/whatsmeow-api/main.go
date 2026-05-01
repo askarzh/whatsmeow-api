@@ -19,6 +19,7 @@ func main() {
 	root.PersistentFlags().String("token", "", "daemon bearer token (default $WMAPI_TOKEN)")
 	root.AddCommand(serveCmd())
 	root.AddCommand(statusCmd())
+	root.AddCommand(logoutCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
