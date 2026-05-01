@@ -4,13 +4,40 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/askarzh/whatsmeow-api/internal/store"
 )
 
 type MediaStore struct{ db *sql.DB }
 
-func (s *MediaStore) Put(_ context.Context, _ store.MediaRef) error                          { return errors.New("not implemented") }
-func (s *MediaStore) GetByMessageID(_ context.Context, _ string) (store.MediaRef, error) {
-	return store.MediaRef{}, errors.New("not implemented")
+const mediaColumns = `message_id, mime, size, sha256, path`
+
+func (s *MediaStore) Put(ctx context.Context, m store.MediaRef) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO media (message_id, mime, size, sha256, path)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(message_id) DO UPDATE SET
+			mime = excluded.mime,
+			size = excluded.size,
+			sha256 = excluded.sha256,
+			path = excluded.path
+	`, m.MessageID, m.MIME, m.Size, m.SHA256, m.Path)
+	if err != nil {
+		return fmt.Errorf("media put: %w", err)
+	}
+	return nil
+}
+
+func (s *MediaStore) GetByMessageID(ctx context.Context, messageID string) (store.MediaRef, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT `+mediaColumns+` FROM media WHERE message_id = ?`, messageID)
+	var m store.MediaRef
+	err := row.Scan(&m.MessageID, &m.MIME, &m.Size, &m.SHA256, &m.Path)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.MediaRef{}, store.ErrNotFound
+	}
+	if err != nil {
+		return store.MediaRef{}, fmt.Errorf("media get: %w", err)
+	}
+	return m, nil
 }
