@@ -100,6 +100,6 @@ func renderQR(code string) {
 	// Clear the screen so each QR is rendered cleanly.
 	fmt.Print("\033[H\033[2J")
 	fmt.Println("Scan this with WhatsApp → Settings → Linked Devices → Link a Device:")
-	qrterminal.Generate(code, qrterminal.M, os.Stdout)
+	qrterminal.GenerateHalfBlock(code, qrterminal.M, os.Stdout)
 	fmt.Println("(expires in ~20s, will refresh)")
 }
