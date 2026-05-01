@@ -20,6 +20,7 @@ func main() {
 	root.AddCommand(serveCmd())
 	root.AddCommand(statusCmd())
 	root.AddCommand(logoutCmd())
+	root.AddCommand(loginCmd())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
