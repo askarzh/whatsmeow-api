@@ -30,7 +30,8 @@ type Adapter struct {
 	loginInProgress bool
 	lastConnectedAt time.Time
 
-	pairCh chan string // signaled with outcome by event handler during phone pair
+	pairCh          chan string          // signaled with outcome by event handler during phone pair
+	incomingHandler func(IncomingMessage) // Plan 04
 }
 
 // NewAdapter constructs an Adapter. The container must already be initialized
@@ -103,6 +104,17 @@ func (a *Adapter) onEvent(raw any) {
 	case *events.PairError:
 		a.logger.Warn("wa pair error", "err", evt.Error.Error())
 		a.signalPair("err-" + evt.Error.Error())
+	case *events.Message:
+		incoming, ok := translateIncoming(evt)
+		if !ok {
+			return // protocol/system message; skip
+		}
+		a.mu.Lock()
+		h := a.incomingHandler
+		a.mu.Unlock()
+		if h != nil {
+			h(incoming)
+		}
 	}
 }
 
@@ -116,6 +128,50 @@ func (a *Adapter) signalPair(outcome string) {
 		case ch <- outcome:
 		default:
 		}
+	}
+}
+
+// translateIncoming converts a whatsmeow events.Message into our domain type.
+// Returns (_, false) for protocol/system events that have no text or media body.
+func translateIncoming(evt *events.Message) (IncomingMessage, bool) {
+	kind, body, hasBody := messageKindAndBody(evt.Message)
+	if !hasBody {
+		return IncomingMessage{}, false
+	}
+	return IncomingMessage{
+		ID:        evt.Info.ID,
+		ChatJID:   evt.Info.Chat.String(),
+		ChatKind:  ChatKindFromJID(evt.Info.Chat.String()),
+		SenderJID: evt.Info.Sender.String(),
+		Timestamp: evt.Info.Timestamp,
+		Kind:      kind,
+		Body:      body,
+		PushName:  evt.Info.PushName,
+	}, true
+}
+
+// messageKindAndBody picks the relevant field out of a *waE2E.Message and
+// returns ("", "", false) for variants we don't persist (protocol/system, etc.).
+func messageKindAndBody(m *waE2E.Message) (string, string, bool) {
+	switch {
+	case m == nil:
+		return "", "", false
+	case m.Conversation != nil:
+		return "text", *m.Conversation, true
+	case m.ExtendedTextMessage != nil && m.ExtendedTextMessage.Text != nil:
+		return "text", *m.ExtendedTextMessage.Text, true
+	case m.ImageMessage != nil:
+		return "image", "", true
+	case m.VideoMessage != nil:
+		return "video", "", true
+	case m.AudioMessage != nil:
+		return "audio", "", true
+	case m.DocumentMessage != nil:
+		return "document", "", true
+	case m.StickerMessage != nil:
+		return "sticker", "", true
+	default:
+		return "", "", false
 	}
 }
 
@@ -337,10 +393,13 @@ func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, err
 	}, nil
 }
 
-// OnIncomingMessage is implemented in Task 3.
+// OnIncomingMessage registers a handler invoked once per incoming message
+// event, after translation into the domain type IncomingMessage. Setting nil
+// clears the handler. Calling this twice replaces the previous handler.
 func (a *Adapter) OnIncomingMessage(handler func(IncomingMessage)) {
-	// no-op stub; Task 3 wires this into onEvent.
-	_ = handler
+	a.mu.Lock()
+	a.incomingHandler = handler
+	a.mu.Unlock()
 }
 
 // compile-time interface check
