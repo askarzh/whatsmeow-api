@@ -1,29 +1,58 @@
 package http_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/askarzh/whatsmeow-api/internal/service"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
+	"github.com/askarzh/whatsmeow-api/internal/waclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestStatusHandlerPlaceholder(t *testing.T) {
+type fakeStatusSvc struct{ st waclient.Status }
+
+func (f fakeStatusSvc) Status(context.Context) (waclient.Status, error)                       { return f.st, nil }
+func (f fakeStatusSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error)              { return nil, nil }
+func (f fakeStatusSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) { return nil, nil }
+func (f fakeStatusSvc) Logout(context.Context) error                                          { return nil }
+
+var _ service.Service = fakeStatusSvc{}
+
+func TestStatusHandlerDisconnected(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	httpapi.StatusHandler(fakeStatusSvc{st: waclient.Status{}}).ServeHTTP(rr, req)
 
-	httpapi.StatusHandler().ServeHTTP(rr, req)
-
-	res := rr.Result()
-	defer res.Body.Close()
-	assert.Equal(t, http.StatusOK, res.StatusCode)
-
+	assert.Equal(t, http.StatusOK, rr.Code)
 	var body map[string]any
-	require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
 	assert.Equal(t, false, body["wa_connected"])
-	assert.Equal(t, nil, body["jid"])
-	assert.Equal(t, nil, body["since"])
+	assert.Nil(t, body["jid"])
+	assert.Nil(t, body["push_name"])
+	assert.Nil(t, body["since"])
+}
+
+func TestStatusHandlerConnected(t *testing.T) {
+	jid := "27821234567@s.whatsapp.net"
+	push := "Askar"
+	since := time.Date(2026, 4, 30, 11, 23, 45, 0, time.UTC)
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
+	httpapi.StatusHandler(fakeStatusSvc{st: waclient.Status{
+		Connected: true, JID: &jid, PushName: &push, Since: &since,
+	}}).ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	var body map[string]any
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, true, body["wa_connected"])
+	assert.Equal(t, jid, body["jid"])
+	assert.Equal(t, push, body["push_name"])
+	assert.Equal(t, "2026-04-30T11:23:45Z", body["since"])
 }

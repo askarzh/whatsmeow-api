@@ -1,0 +1,37 @@
+package http_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/askarzh/whatsmeow-api/internal/service"
+	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
+	"github.com/askarzh/whatsmeow-api/internal/waclient"
+	"github.com/stretchr/testify/assert"
+)
+
+type fakeLogoutSvc struct{ err error }
+
+func (f fakeLogoutSvc) Status(context.Context) (waclient.Status, error)                       { return waclient.Status{}, nil }
+func (f fakeLogoutSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error)              { return nil, nil }
+func (f fakeLogoutSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) { return nil, nil }
+func (f fakeLogoutSvc) Logout(context.Context) error                                          { return f.err }
+
+var _ service.Service = fakeLogoutSvc{}
+
+func TestLogoutSuccess(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/logout", nil)
+	httpapi.LogoutHandler(fakeLogoutSvc{}).ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusNoContent, rr.Code)
+}
+
+func TestLogoutNotLoggedIn(t *testing.T) {
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/logout", nil)
+	httpapi.LogoutHandler(fakeLogoutSvc{err: waclient.ErrNotLoggedIn}).ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusConflict, rr.Code)
+	assert.Equal(t, "application/problem+json", rr.Header().Get("Content-Type"))
+}

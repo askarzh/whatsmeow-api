@@ -11,7 +11,7 @@ import (
 )
 
 func TestRouterHealthIsPublic(t *testing.T) {
-	r := httpapi.NewRouter(httpapi.Deps{Config: config.Config{Auth: config.AuthConfig{Token: "s3cret"}}})
+	r := httpapi.NewRouter(httpapi.Deps{Config: config.Config{Auth: config.AuthConfig{Token: "s3cret"}}, Service: fakeStatusSvc{}})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/health", nil)
@@ -21,7 +21,7 @@ func TestRouterHealthIsPublic(t *testing.T) {
 }
 
 func TestRouterStatusRequiresAuth(t *testing.T) {
-	r := httpapi.NewRouter(httpapi.Deps{Config: config.Config{Auth: config.AuthConfig{Token: "s3cret"}}})
+	r := httpapi.NewRouter(httpapi.Deps{Config: config.Config{Auth: config.AuthConfig{Token: "s3cret"}}, Service: fakeStatusSvc{}})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
@@ -36,7 +36,7 @@ func TestRouterStatusRequiresAuth(t *testing.T) {
 }
 
 func TestRouterAuthDisabledStatusOpen(t *testing.T) {
-	r := httpapi.NewRouter(httpapi.Deps{Config: config.Config{}})
+	r := httpapi.NewRouter(httpapi.Deps{Config: config.Config{}, Service: fakeStatusSvc{}})
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/status", nil)
