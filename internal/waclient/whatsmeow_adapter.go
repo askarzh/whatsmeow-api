@@ -3,15 +3,17 @@ package waclient
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
 	// Database drivers — imported for side-effects so database/sql can find them.
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -306,9 +308,33 @@ func (a *Adapter) Close() error {
 	return nil
 }
 
-// SendText is implemented in Task 2.
+// SendText sends a plain-text message to chatJID.
 func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, error) {
-	return Sent{}, errors.New("waclient: SendText not yet implemented")
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+	msg := &waE2E.Message{
+		Conversation: proto.String(text),
+	}
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send message: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
 }
 
 // OnIncomingMessage is implemented in Task 3.
