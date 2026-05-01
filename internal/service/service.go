@@ -91,11 +91,15 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 	if err := s.bundle.Messages.Put(ctx, msg); err != nil {
 		s.logger.Warn("persist outbound message failed; whatsmeow echo will heal", "id", sent.ID, "err", err)
 	}
-	if err := s.bundle.Chats.Put(ctx, store.Chat{
-		JID:       chatJID,
-		Kind:      waclient.ChatKindFromJID(chatJID),
-		LastMsgAt: sent.Timestamp,
-	}); err != nil {
+	existing, err := s.bundle.Chats.Get(ctx, chatJID)
+	if err != nil {
+		existing = store.Chat{JID: chatJID, Kind: waclient.ChatKindFromJID(chatJID)}
+	}
+	existing.LastMsgAt = sent.Timestamp
+	if existing.Kind == "" {
+		existing.Kind = waclient.ChatKindFromJID(chatJID)
+	}
+	if err := s.bundle.Chats.Put(ctx, existing); err != nil {
 		s.logger.Warn("upsert chat on send failed", "chat_jid", chatJID, "err", err)
 	}
 	return msg, nil

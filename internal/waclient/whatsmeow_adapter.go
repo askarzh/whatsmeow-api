@@ -132,8 +132,12 @@ func (a *Adapter) signalPair(outcome string) {
 }
 
 // translateIncoming converts a whatsmeow events.Message into our domain type.
-// Returns (_, false) for protocol/system events that have no text or media body.
+// Returns (_, false) for protocol/system events that have no text or media body,
+// and for self-sent (echo) messages so outgoing sends don't increment unread counts.
 func translateIncoming(evt *events.Message) (IncomingMessage, bool) {
+	if evt.Info.IsFromMe {
+		return IncomingMessage{}, false
+	}
 	kind, body, hasBody := messageKindAndBody(evt.Message)
 	if !hasBody {
 		return IncomingMessage{}, false

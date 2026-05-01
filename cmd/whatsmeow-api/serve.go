@@ -72,10 +72,6 @@ func serveCmd() *cobra.Command {
 				_ = container.Close()
 			}()
 
-			if err := wa.Resume(ctx); err != nil {
-				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)
-			}
-
 			appPath := filepath.Join(cfg.DataDir, "whatsmeow-app.db")
 			appDB, err := sqlitestore.New(ctx, appPath)
 			if err != nil {
@@ -85,6 +81,10 @@ func serveCmd() *cobra.Command {
 			logger.Info("app store opened", "path", appPath)
 
 			svc := service.New(wa, appDB.Bundle(), logger)
+
+			if err := wa.Resume(ctx); err != nil {
+				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)
+			}
 
 			srv := httpapi.NewServer(httpapi.Deps{
 				Config:  cfg,

@@ -34,6 +34,7 @@ func TestErrorsExist(t *testing.T) {
 	assert.NotNil(t, waclient.ErrLoginInProgress)
 	assert.NotNil(t, waclient.ErrAlreadyLoggedIn)
 	assert.NotNil(t, waclient.ErrNotLoggedIn)
+	assert.NotNil(t, waclient.ErrNotConnected)
 }
 
 func TestChatKindFromJID(t *testing.T) {

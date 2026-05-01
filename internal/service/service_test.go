@@ -301,6 +301,25 @@ func (f *failingMessageStore) Search(context.Context, string, int) ([]store.Mess
 }
 func (f *failingMessageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
 
+func TestSendTextPreservesUnreadCount(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, _, _ := newInMemoryBundle()
+	(*chats)["chat@s.whatsapp.net"] = store.Chat{
+		JID: "chat@s.whatsapp.net", Kind: "user", UnreadCount: 5,
+	}
+
+	wa := &sendableFakeWA{
+		sendResp: waclient.Sent{ID: "MID1", Timestamp: time.Unix(1000, 0).UTC(), SenderJID: "me@s.whatsapp.net"},
+	}
+	s := service.New(wa, bundle, nil)
+
+	_, err := s.SendText(ctx, "chat@s.whatsapp.net", "hi")
+	require.NoError(t, err)
+
+	// unread_count must be preserved at 5 — sending should not reset it.
+	assert.Equal(t, 5, (*chats)["chat@s.whatsapp.net"].UnreadCount)
+}
+
 func TestHandleIncomingNewChat(t *testing.T) {
 	bundle, chats, msgs, contacts := newInMemoryBundle()
 	wa := &sendableFakeWA{}
