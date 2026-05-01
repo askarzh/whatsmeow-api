@@ -84,7 +84,7 @@ func serveCmd() *cobra.Command {
 			defer func() { _ = appDB.Close() }()
 			logger.Info("app store opened", "path", appPath)
 
-			svc := service.New(wa)
+			svc := service.New(wa, appDB.Bundle(), logger)
 
 			srv := httpapi.NewServer(httpapi.Deps{
 				Config:  cfg,

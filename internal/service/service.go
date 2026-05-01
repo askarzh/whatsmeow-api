@@ -1,11 +1,14 @@
-// Package service holds the daemon's use cases. Plan 02 ships pass-through
-// methods over WAClient; Plan 04+ will add Store-backed methods.
+// Package service holds the daemon's use cases. Plan 02 shipped pass-through
+// methods over WAClient; Plan 04 adds SendText + inbound persistence over the
+// app store.
 package service
 
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
 
@@ -18,12 +21,17 @@ type Service interface {
 }
 
 type svc struct {
-	wa waclient.WAClient
+	wa     waclient.WAClient
+	bundle store.Bundle
+	logger *slog.Logger
 }
 
-// New constructs a Service backed by the given WAClient.
-func New(wa waclient.WAClient) Service {
-	return &svc{wa: wa}
+// New constructs a Service backed by the given WAClient and store bundle.
+func New(wa waclient.WAClient, bundle store.Bundle, logger *slog.Logger) Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &svc{wa: wa, bundle: bundle, logger: logger}
 }
 
 func (s *svc) Status(_ context.Context) (waclient.Status, error) {

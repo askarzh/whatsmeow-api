@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,7 @@ func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"
 	now := time.Now()
 	f := &fakeWA{status: waclient.Status{Connected: true, JID: &jid, Since: &now}}
-	s := service.New(f)
+	s := service.New(f, store.Bundle{}, nil)
 
 	got, err := s.Status(context.Background())
 	require.NoError(t, err)
@@ -55,7 +56,7 @@ func TestStatusPassThrough(t *testing.T) {
 func TestLoginQRPassThrough(t *testing.T) {
 	ch := make(chan waclient.QREvent)
 	f := &fakeWA{loginQR: ch}
-	s := service.New(f)
+	s := service.New(f, store.Bundle{}, nil)
 
 	got, err := s.LoginQR(context.Background())
 	require.NoError(t, err)
@@ -64,14 +65,14 @@ func TestLoginQRPassThrough(t *testing.T) {
 
 func TestLoginQRError(t *testing.T) {
 	f := &fakeWA{loginQRErr: waclient.ErrAlreadyLoggedIn}
-	s := service.New(f)
+	s := service.New(f, store.Bundle{}, nil)
 	_, err := s.LoginQR(context.Background())
 	assert.ErrorIs(t, err, waclient.ErrAlreadyLoggedIn)
 }
 
 func TestLoginPhoneRejectsBadNumber(t *testing.T) {
 	f := &fakeWA{}
-	s := service.New(f)
+	s := service.New(f, store.Bundle{}, nil)
 	_, err := s.LoginPhone(context.Background(), "27821234567")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "phone number")
@@ -81,7 +82,7 @@ func TestLoginPhoneRejectsBadNumber(t *testing.T) {
 func TestLoginPhonePassThrough(t *testing.T) {
 	ch := make(chan waclient.PairEvent)
 	f := &fakeWA{loginPhone: ch}
-	s := service.New(f)
+	s := service.New(f, store.Bundle{}, nil)
 	got, err := s.LoginPhone(context.Background(), "+27821234567")
 	require.NoError(t, err)
 	assert.Equal(t, (<-chan waclient.PairEvent)(ch), got)
@@ -90,7 +91,7 @@ func TestLoginPhonePassThrough(t *testing.T) {
 
 func TestLogoutPassThrough(t *testing.T) {
 	f := &fakeWA{logoutErr: errors.New("boom")}
-	s := service.New(f)
+	s := service.New(f, store.Bundle{}, nil)
 	err := s.Logout(context.Background())
 	assert.ErrorContains(t, err, "boom")
 }
