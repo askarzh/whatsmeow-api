@@ -7,6 +7,7 @@ import (
 
 	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -17,6 +18,7 @@ type Deps struct {
 	Config  config.Config
 	Logger  *slog.Logger
 	Service service.Service
+	Store   store.Bundle
 }
 
 func NewRouter(d Deps) http.Handler {
