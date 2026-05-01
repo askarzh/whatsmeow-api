@@ -24,6 +24,7 @@ type fakeWA struct {
 	loginPhoneArg string
 	logoutErr     error
 	closed        bool
+	incoming      func(waclient.IncomingMessage)
 }
 
 func (f *fakeWA) Status() waclient.Status      { return f.status }
@@ -40,7 +41,9 @@ func (f *fakeWA) Close() error                 { f.closed = true; return nil }
 func (f *fakeWA) SendText(context.Context, string, string) (waclient.Sent, error) {
 	return waclient.Sent{}, nil
 }
-func (f *fakeWA) OnIncomingMessage(func(waclient.IncomingMessage)) {}
+func (f *fakeWA) OnIncomingMessage(h func(waclient.IncomingMessage)) {
+	f.incoming = h
+}
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"
@@ -297,3 +300,96 @@ func (f *failingMessageStore) Search(context.Context, string, int) ([]store.Mess
 	return nil, nil
 }
 func (f *failingMessageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+
+func TestHandleIncomingNewChat(t *testing.T) {
+	bundle, chats, msgs, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	_ = service.New(wa, bundle, nil) // registers s.handleIncoming with wa
+
+	require.NotNil(t, wa.incoming, "service.New must register an incoming handler")
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "MIN1",
+		ChatJID:   "27821234567@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "27821234567@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(),
+		Kind:      "text",
+		Body:      "hi from phone",
+		PushName:  "Alice",
+	})
+
+	require.Contains(t, *msgs, "MIN1")
+	require.Contains(t, *chats, "27821234567@s.whatsapp.net")
+	chat := (*chats)["27821234567@s.whatsapp.net"]
+	assert.Equal(t, 1, chat.UnreadCount)
+	assert.Equal(t, "user", chat.Kind)
+
+	require.Contains(t, *contacts, "27821234567@s.whatsapp.net")
+	assert.Equal(t, "Alice", (*contacts)["27821234567@s.whatsapp.net"].PushName)
+}
+
+func TestHandleIncomingExistingChat(t *testing.T) {
+	bundle, chats, _, _ := newInMemoryBundle()
+	(*chats)["chat@s.whatsapp.net"] = store.Chat{
+		JID: "chat@s.whatsapp.net", Kind: "user", UnreadCount: 3,
+	}
+	wa := &sendableFakeWA{}
+	service.New(wa, bundle, nil)
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "MIN2",
+		ChatJID:   "chat@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "chat@s.whatsapp.net",
+		Timestamp: time.Unix(2000, 0).UTC(),
+		Kind:      "text",
+		Body:      "another",
+		PushName:  "B",
+	})
+
+	chat := (*chats)["chat@s.whatsapp.net"]
+	assert.Equal(t, 4, chat.UnreadCount)
+}
+
+func TestHandleIncomingNonText(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	service.New(wa, bundle, nil)
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "MIN3",
+		ChatJID:   "chat@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "chat@s.whatsapp.net",
+		Timestamp: time.Unix(3000, 0).UTC(),
+		Kind:      "image",
+		Body:      "",
+		PushName:  "C",
+	})
+
+	require.Contains(t, *msgs, "MIN3")
+	got := (*msgs)["MIN3"]
+	assert.Equal(t, "image", got.Kind)
+	assert.Empty(t, got.Body)
+}
+
+func TestHandleIncomingEmptyPushName(t *testing.T) {
+	bundle, _, _, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	service.New(wa, bundle, nil)
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "MIN4",
+		ChatJID:   "chat@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "sender@s.whatsapp.net",
+		Timestamp: time.Unix(4000, 0).UTC(),
+		Kind:      "text",
+		Body:      "yo",
+		PushName:  "",
+	})
+
+	// No contact upsert when push_name is empty.
+	assert.NotContains(t, *contacts, "sender@s.whatsapp.net")
+}

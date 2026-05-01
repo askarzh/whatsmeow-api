@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
@@ -39,7 +38,9 @@ func New(wa waclient.WAClient, bundle store.Bundle, logger *slog.Logger) Service
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &svc{wa: wa, bundle: bundle, logger: logger}
+	s := &svc{wa: wa, bundle: bundle, logger: logger}
+	wa.OnIncomingMessage(s.handleIncoming)
+	return s
 }
 
 func (s *svc) Status(_ context.Context) (waclient.Status, error) {
@@ -100,5 +101,40 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 	return msg, nil
 }
 
-// Imports used by handleIncoming (Task 6); silence "unused" until Task 6.
-var _ = time.Time{}
+func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
+	ctx := context.Background()
+
+	if msg.PushName != "" {
+		if err := s.bundle.Contacts.Put(ctx, store.Contact{
+			JID:      msg.SenderJID,
+			PushName: msg.PushName,
+		}); err != nil {
+			s.logger.Warn("upsert contact on incoming failed", "jid", msg.SenderJID, "err", err)
+		}
+	}
+
+	chat, err := s.bundle.Chats.Get(ctx, msg.ChatJID)
+	if err != nil {
+		// Treat any error (including ErrNotFound) as "no existing chat".
+		chat = store.Chat{JID: msg.ChatJID, Kind: msg.ChatKind}
+	}
+	chat.LastMsgAt = msg.Timestamp
+	chat.UnreadCount++
+	if chat.Kind == "" {
+		chat.Kind = msg.ChatKind
+	}
+	if err := s.bundle.Chats.Put(ctx, chat); err != nil {
+		s.logger.Warn("upsert chat on incoming failed", "jid", msg.ChatJID, "err", err)
+	}
+
+	if err := s.bundle.Messages.Put(ctx, store.Message{
+		ID:        msg.ID,
+		ChatJID:   msg.ChatJID,
+		SenderJID: msg.SenderJID,
+		Timestamp: msg.Timestamp,
+		Kind:      msg.Kind,
+		Body:      msg.Body,
+	}); err != nil {
+		s.logger.Warn("persist incoming message failed", "id", msg.ID, "err", err)
+	}
+}
