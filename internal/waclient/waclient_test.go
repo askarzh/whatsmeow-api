@@ -35,3 +35,22 @@ func TestErrorsExist(t *testing.T) {
 	assert.NotNil(t, waclient.ErrAlreadyLoggedIn)
 	assert.NotNil(t, waclient.ErrNotLoggedIn)
 }
+
+func TestChatKindFromJID(t *testing.T) {
+	cases := []struct {
+		jid  string
+		want string
+	}{
+		{"27821234567@s.whatsapp.net", "user"},
+		{"123456789-1234567890@g.us", "group"},
+		{"status@broadcast", "broadcast"},
+		{"chan@newsletter", "newsletter"},
+		{"oddball@example.com", "unknown"},
+		{"", "unknown"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.jid, func(t *testing.T) {
+			assert.Equal(t, tc.want, waclient.ChatKindFromJID(tc.jid))
+		})
+	}
+}

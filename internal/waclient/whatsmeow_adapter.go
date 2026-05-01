@@ -3,6 +3,7 @@ package waclient
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -303,6 +304,17 @@ func (a *Adapter) Close() error {
 		a.client.Disconnect()
 	}
 	return nil
+}
+
+// SendText is implemented in Task 2.
+func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, error) {
+	return Sent{}, errors.New("waclient: SendText not yet implemented")
+}
+
+// OnIncomingMessage is implemented in Task 3.
+func (a *Adapter) OnIncomingMessage(handler func(IncomingMessage)) {
+	// no-op stub; Task 3 wires this into onEvent.
+	_ = handler
 }
 
 // compile-time interface check

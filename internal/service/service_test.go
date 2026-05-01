@@ -35,6 +35,10 @@ func (f *fakeWA) LoginPhone(_ context.Context, n string) (<-chan waclient.PairEv
 }
 func (f *fakeWA) Logout(context.Context) error { return f.logoutErr }
 func (f *fakeWA) Close() error                 { f.closed = true; return nil }
+func (f *fakeWA) SendText(context.Context, string, string) (waclient.Sent, error) {
+	return waclient.Sent{}, nil
+}
+func (f *fakeWA) OnIncomingMessage(func(waclient.IncomingMessage)) {}
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"
