@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/askarzh/whatsmeow-api/internal/logging"
+	"github.com/askarzh/whatsmeow-api/internal/service"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
+	"github.com/askarzh/whatsmeow-api/internal/waclient"
 	"github.com/spf13/cobra"
 )
 
@@ -33,10 +36,52 @@ func serveCmd() *cobra.Command {
 				return fmt.Errorf("init logger: %w", err)
 			}
 
-			srv := httpapi.NewServer(httpapi.Deps{Config: cfg, Logger: logger})
-
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
+
+			if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+				return fmt.Errorf("create data_dir %q: %w", cfg.DataDir, err)
+			}
+
+			var (
+				container interface{ Close() error }
+				wa        *waclient.Adapter
+			)
+			switch cfg.Storage.Backend {
+			case "sqlite":
+				path := filepath.Join(cfg.DataDir, "whatsmeow-session.db")
+				c, err := waclient.OpenSQLite(ctx, path, logger)
+				if err != nil {
+					return fmt.Errorf("open sqlite session store: %w", err)
+				}
+				container = c
+				wa = waclient.NewAdapter(c, logger)
+			case "postgres":
+				c, err := waclient.OpenPostgres(ctx, cfg.Storage.PostgresDSN, logger)
+				if err != nil {
+					return fmt.Errorf("open postgres session store: %w", err)
+				}
+				container = c
+				wa = waclient.NewAdapter(c, logger)
+			default:
+				return fmt.Errorf("unsupported storage backend %q", cfg.Storage.Backend)
+			}
+			defer func() {
+				_ = wa.Close()
+				_ = container.Close()
+			}()
+
+			if err := wa.Resume(ctx); err != nil {
+				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)
+			}
+
+			svc := service.New(wa)
+
+			srv := httpapi.NewServer(httpapi.Deps{
+				Config:  cfg,
+				Logger:  logger,
+				Service: svc,
+			})
 
 			logger.Info("server starting", "bind", cfg.Server.Bind, "port", cfg.Server.Port)
 			if err := srv.Run(ctx); err != nil {
