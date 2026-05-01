@@ -1,0 +1,119 @@
+// Package store defines the daemon's app-level persistence interfaces. The
+// SQLite implementation lives in internal/store/sqlite; Plan 10 will add a
+// Postgres impl in internal/store/postgres.
+package store
+
+import (
+	"context"
+	"time"
+)
+
+// Chat is one conversation — direct or group.
+type Chat struct {
+	JID         string
+	Name        string
+	Kind        string // "user" | "group" | "broadcast"
+	LastMsgAt   time.Time
+	UnreadCount int
+	Archived    bool
+}
+
+// Message is one persisted message in a chat.
+type Message struct {
+	ID         string // whatsmeow's native id (e.g. "3EB05ABC...")
+	ChatJID    string
+	SenderJID  string
+	Timestamp  time.Time
+	Kind       string // "text" | "image" | "video" | "audio" | "document" | "sticker" | "system"
+	Body       string
+	ReplyTo    string // empty if not a reply
+	EditedAt   *time.Time
+	DeletedAt  *time.Time
+	RawMeta    string // JSON-encoded passthrough of the whatsmeow event
+}
+
+// Contact is a known WhatsApp identity.
+type Contact struct {
+	JID          string
+	PushName     string
+	FullName     string
+	BusinessName string
+}
+
+// MediaRef points to an on-disk attachment for a message.
+type MediaRef struct {
+	MessageID string
+	MIME      string
+	Size      int64
+	SHA256    string
+	Path      string
+}
+
+// EventLogEntry is one row in events_log, used by SSE Last-Event-ID resume.
+type EventLogEntry struct {
+	Seq     int64
+	Time    time.Time
+	Type    string
+	Payload string // JSON-encoded
+}
+
+// ChatStore manages the chats table.
+type ChatStore interface {
+	Put(ctx context.Context, c Chat) error
+	Get(ctx context.Context, jid string) (Chat, error)
+	List(ctx context.Context, includeArchived bool) ([]Chat, error)
+	SetArchived(ctx context.Context, jid string, archived bool) error
+}
+
+// MessageStore manages the messages table and FTS index.
+type MessageStore interface {
+	Put(ctx context.Context, m Message) error
+	Get(ctx context.Context, id string) (Message, error)
+	ListByChat(ctx context.Context, chatJID string, limit int, beforeTS time.Time) ([]Message, error)
+	Search(ctx context.Context, query string, limit int) ([]Message, error)
+	SoftDelete(ctx context.Context, id string, when time.Time) error
+}
+
+// ContactStore manages the contacts table.
+type ContactStore interface {
+	Put(ctx context.Context, c Contact) error
+	Get(ctx context.Context, jid string) (Contact, error)
+	List(ctx context.Context) ([]Contact, error)
+}
+
+// MediaStore manages the media table.
+type MediaStore interface {
+	Put(ctx context.Context, m MediaRef) error
+	GetByMessageID(ctx context.Context, messageID string) (MediaRef, error)
+}
+
+// EventsLog manages the bounded events_log used for SSE resume.
+type EventsLog interface {
+	Append(ctx context.Context, entry EventLogEntry) (int64, error)
+	SinceSeq(ctx context.Context, seq int64, limit int) ([]EventLogEntry, error)
+}
+
+// KV is small daemon state.
+type KV interface {
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key, value string) error
+	Delete(ctx context.Context, key string) error
+}
+
+// Bundle aggregates the per-domain interfaces. Constructed by the SQLite store
+// (or, in Plan 10, the Postgres store) and passed into HTTP handlers via Deps.
+type Bundle struct {
+	Chats    ChatStore
+	Messages MessageStore
+	Contacts ContactStore
+	Media    MediaStore
+	Events   EventsLog
+	KV       KV
+}
+
+// ErrNotFound is returned by Get* methods when the key is absent.
+var ErrNotFound = sentinelError("store: not found")
+
+type sentinelError string
+
+func (e sentinelError) Error() string { return string(e) }
