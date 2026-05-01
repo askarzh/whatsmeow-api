@@ -5,12 +5,18 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
+
+// ErrInvalidRequest is returned when the caller provides invalid input.
+var ErrInvalidRequest = errors.New("service: invalid request")
 
 // Service is the use-case layer the HTTP handlers depend on.
 type Service interface {
@@ -18,6 +24,8 @@ type Service interface {
 	LoginQR(ctx context.Context) (<-chan waclient.QREvent, error)
 	LoginPhone(ctx context.Context, phoneNumber string) (<-chan waclient.PairEvent, error)
 	Logout(ctx context.Context) error
+
+	SendText(ctx context.Context, chatJID, text string) (store.Message, error)
 }
 
 type svc struct {
@@ -52,3 +60,45 @@ func (s *svc) LoginPhone(ctx context.Context, phoneNumber string) (<-chan waclie
 func (s *svc) Logout(ctx context.Context) error {
 	return s.wa.Logout(ctx)
 }
+
+const maxTextLen = 4096
+
+func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message, error) {
+	if strings.TrimSpace(chatJID) == "" {
+		return store.Message{}, fmt.Errorf("%w: chat_jid is required", ErrInvalidRequest)
+	}
+	if text == "" {
+		return store.Message{}, fmt.Errorf("%w: text is required", ErrInvalidRequest)
+	}
+	if len(text) > maxTextLen {
+		return store.Message{}, fmt.Errorf("%w: text exceeds %d bytes", ErrInvalidRequest, maxTextLen)
+	}
+
+	sent, err := s.wa.SendText(ctx, chatJID, text)
+	if err != nil {
+		return store.Message{}, err
+	}
+
+	msg := store.Message{
+		ID:        sent.ID,
+		ChatJID:   chatJID,
+		SenderJID: sent.SenderJID,
+		Timestamp: sent.Timestamp,
+		Kind:      "text",
+		Body:      text,
+	}
+	if err := s.bundle.Messages.Put(ctx, msg); err != nil {
+		s.logger.Warn("persist outbound message failed; whatsmeow echo will heal", "id", sent.ID, "err", err)
+	}
+	if err := s.bundle.Chats.Put(ctx, store.Chat{
+		JID:       chatJID,
+		Kind:      waclient.ChatKindFromJID(chatJID),
+		LastMsgAt: sent.Timestamp,
+	}); err != nil {
+		s.logger.Warn("upsert chat on send failed", "chat_jid", chatJID, "err", err)
+	}
+	return msg, nil
+}
+
+// Imports used by handleIncoming (Task 6); silence "unused" until Task 6.
+var _ = time.Time{}

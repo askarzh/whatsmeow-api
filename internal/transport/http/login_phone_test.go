@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 	"github.com/stretchr/testify/assert"
@@ -28,6 +29,9 @@ func (f *fakeLoginPhoneSvc) LoginPhone(_ context.Context, n string) (<-chan wacl
 	return f.ch, f.err
 }
 func (f *fakeLoginPhoneSvc) Logout(context.Context) error { return nil }
+func (f *fakeLoginPhoneSvc) SendText(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
 
 var _ service.Service = (*fakeLoginPhoneSvc)(nil)
 

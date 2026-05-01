@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,3 +96,204 @@ func TestLogoutPassThrough(t *testing.T) {
 	err := s.Logout(context.Background())
 	assert.ErrorContains(t, err, "boom")
 }
+
+// inMemoryBundle returns a store.Bundle whose interfaces are backed by simple
+// in-memory maps. Sufficient for service-level tests; not thread-safe.
+type memChats map[string]store.Chat
+type memMessages map[string]store.Message
+type memContacts map[string]store.Contact
+
+func newInMemoryBundle() (store.Bundle, *memChats, *memMessages, *memContacts) {
+	c := memChats{}
+	m := memMessages{}
+	co := memContacts{}
+	return store.Bundle{
+		Chats:    &chatStore{m: c},
+		Messages: &messageStore{m: m},
+		Contacts: &contactStore{m: co},
+		Media:    &mediaStore{},
+		Events:   &eventsStore{},
+		KV:       &kvStore{m: map[string]string{}},
+	}, &c, &m, &co
+}
+
+type chatStore struct{ m memChats }
+
+func (s *chatStore) Put(_ context.Context, c store.Chat) error { s.m[c.JID] = c; return nil }
+func (s *chatStore) Get(_ context.Context, jid string) (store.Chat, error) {
+	c, ok := s.m[jid]
+	if !ok {
+		return store.Chat{}, store.ErrNotFound
+	}
+	return c, nil
+}
+func (s *chatStore) List(context.Context, bool) ([]store.Chat, error) { return nil, nil }
+func (s *chatStore) SetArchived(context.Context, string, bool) error  { return nil }
+
+type messageStore struct{ m memMessages }
+
+func (s *messageStore) Put(_ context.Context, msg store.Message) error { s.m[msg.ID] = msg; return nil }
+func (s *messageStore) Get(_ context.Context, id string) (store.Message, error) {
+	msg, ok := s.m[id]
+	if !ok {
+		return store.Message{}, store.ErrNotFound
+	}
+	return msg, nil
+}
+func (s *messageStore) ListByChat(context.Context, string, int, time.Time) ([]store.Message, error) {
+	return nil, nil
+}
+func (s *messageStore) Search(context.Context, string, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (s *messageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+
+type contactStore struct{ m memContacts }
+
+func (s *contactStore) Put(_ context.Context, c store.Contact) error { s.m[c.JID] = c; return nil }
+func (s *contactStore) Get(_ context.Context, jid string) (store.Contact, error) {
+	c, ok := s.m[jid]
+	if !ok {
+		return store.Contact{}, store.ErrNotFound
+	}
+	return c, nil
+}
+func (s *contactStore) List(context.Context) ([]store.Contact, error) { return nil, nil }
+
+type mediaStore struct{}
+
+func (s *mediaStore) Put(context.Context, store.MediaRef) error                      { return nil }
+func (s *mediaStore) GetByMessageID(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, store.ErrNotFound
+}
+
+type eventsStore struct{}
+
+func (s *eventsStore) Append(context.Context, store.EventLogEntry) (int64, error) { return 0, nil }
+func (s *eventsStore) SinceSeq(context.Context, int64, int) ([]store.EventLogEntry, error) {
+	return nil, nil
+}
+
+type kvStore struct{ m map[string]string }
+
+func (s *kvStore) Get(_ context.Context, k string) (string, error) {
+	v, ok := s.m[k]
+	if !ok {
+		return "", store.ErrNotFound
+	}
+	return v, nil
+}
+func (s *kvStore) Set(_ context.Context, k, v string) error { s.m[k] = v; return nil }
+func (s *kvStore) Delete(_ context.Context, k string) error { delete(s.m, k); return nil }
+
+type sendableFakeWA struct {
+	fakeWA
+	sentArgs   [3]string // chat, text, sender (sender filled by SendText)
+	sendResp   waclient.Sent
+	sendErr    error
+	calledSend bool
+}
+
+func (f *sendableFakeWA) SendText(_ context.Context, chatJID, text string) (waclient.Sent, error) {
+	f.calledSend = true
+	f.sentArgs[0] = chatJID
+	f.sentArgs[1] = text
+	return f.sendResp, f.sendErr
+}
+
+func TestSendTextSuccess(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, _ := newInMemoryBundle()
+
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	wa := &sendableFakeWA{
+		sendResp: waclient.Sent{ID: "MID1", Timestamp: now, SenderJID: "me@s.whatsapp.net"},
+	}
+	s := service.New(wa, bundle, nil)
+
+	got, err := s.SendText(ctx, "27821234567@s.whatsapp.net", "hello")
+	require.NoError(t, err)
+	assert.Equal(t, "MID1", got.ID)
+	assert.Equal(t, "hello", got.Body)
+	assert.Equal(t, "text", got.Kind)
+	assert.Equal(t, "me@s.whatsapp.net", got.SenderJID)
+	assert.True(t, got.Timestamp.Equal(now))
+
+	// Persistence side effects:
+	require.Contains(t, *msgs, "MID1")
+	require.Contains(t, *chats, "27821234567@s.whatsapp.net")
+	chat := (*chats)["27821234567@s.whatsapp.net"]
+	assert.True(t, chat.LastMsgAt.Equal(now))
+	assert.Equal(t, "user", chat.Kind)
+}
+
+func TestSendTextValidation(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	cases := []struct{ chat, text, expect string }{
+		{"", "hello", "chat_jid"},
+		{"a@s.whatsapp.net", "", "text"},
+		{"a@s.whatsapp.net", strings.Repeat("x", 4097), "text"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.expect, func(t *testing.T) {
+			_, err := s.SendText(ctx, tc.chat, tc.text)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+			assert.False(t, wa.calledSend, "fake WA must not be called on validation failure")
+		})
+	}
+}
+
+func TestSendTextNotConnected(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{sendErr: waclient.ErrNotConnected}
+	s := service.New(wa, bundle, nil)
+	_, err := s.SendText(ctx, "a@s.whatsapp.net", "hi")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestSendTextPersistFailureStillSucceeds(t *testing.T) {
+	// Use a bundle whose Messages.Put errors but Chats.Put works.
+	failMsgs := &failingMessageStore{}
+	bundle := store.Bundle{
+		Chats:    &chatStore{m: memChats{}},
+		Messages: failMsgs,
+		Contacts: &contactStore{m: memContacts{}},
+		Media:    &mediaStore{},
+		Events:   &eventsStore{},
+		KV:       &kvStore{m: map[string]string{}},
+	}
+	wa := &sendableFakeWA{
+		sendResp: waclient.Sent{ID: "MID2", Timestamp: time.Now(), SenderJID: "me@s.whatsapp.net"},
+	}
+	s := service.New(wa, bundle, nil)
+
+	got, err := s.SendText(context.Background(), "a@s.whatsapp.net", "hello")
+	require.NoError(t, err) // persistence failure is logged, not returned
+	assert.Equal(t, "MID2", got.ID)
+	assert.True(t, failMsgs.called)
+}
+
+type failingMessageStore struct {
+	called bool
+}
+
+func (f *failingMessageStore) Put(context.Context, store.Message) error {
+	f.called = true
+	return errors.New("boom")
+}
+func (f *failingMessageStore) Get(context.Context, string) (store.Message, error) {
+	return store.Message{}, store.ErrNotFound
+}
+func (f *failingMessageStore) ListByChat(context.Context, string, int, time.Time) ([]store.Message, error) {
+	return nil, nil
+}
+func (f *failingMessageStore) Search(context.Context, string, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (f *failingMessageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
