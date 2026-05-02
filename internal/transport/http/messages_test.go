@@ -40,6 +40,15 @@ func (f *fakeSendSvc) SendText(_ context.Context, chat, text string) (store.Mess
 	f.gotText = text
 	return f.resp, f.err
 }
+func (f *fakeSendSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) GetChat(context.Context, string) (store.Chat, error) {
+	return store.Chat{}, nil
+}
+func (f *fakeSendSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) {
+	return nil, nil
+}
 
 var _ service.Service = (*fakeSendSvc)(nil)
 

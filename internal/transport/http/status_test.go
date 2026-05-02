@@ -23,6 +23,9 @@ func (f fakeStatusSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error)
 func (f fakeStatusSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) { return nil, nil }
 func (f fakeStatusSvc) Logout(context.Context) error                                          { return nil }
 func (f fakeStatusSvc) SendText(context.Context, string, string) (store.Message, error)       { return store.Message{}, nil }
+func (f fakeStatusSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) { return nil, nil }
+func (f fakeStatusSvc) GetChat(context.Context, string) (store.Chat, error)                   { return store.Chat{}, nil }
+func (f fakeStatusSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) { return nil, nil }
 
 var _ service.Service = fakeStatusSvc{}
 

@@ -174,8 +174,25 @@ func (s *messageStore) Get(_ context.Context, id string) (store.Message, error) 
 	}
 	return msg, nil
 }
-func (s *messageStore) ListByChat(context.Context, string, int, time.Time) ([]store.Message, error) {
-	return nil, nil
+func (s *messageStore) ListByChat(_ context.Context, chatJID string, limit int, beforeTS time.Time) ([]store.Message, error) {
+	var out []store.Message
+	for _, m := range s.m {
+		if m.ChatJID != chatJID {
+			continue
+		}
+		if m.DeletedAt != nil {
+			continue
+		}
+		if !beforeTS.IsZero() && !m.Timestamp.Before(beforeTS) {
+			continue
+		}
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp.After(out[j].Timestamp) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 func (s *messageStore) Search(context.Context, string, int) ([]store.Message, error) {
 	return nil, nil
@@ -469,4 +486,83 @@ func TestHandleIncomingEmptyPushName(t *testing.T) {
 
 	// No contact upsert when push_name is empty.
 	assert.NotContains(t, *contacts, "sender@s.whatsapp.net")
+}
+
+func TestListChatsValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	// limit < 1
+	_, err := s.ListChats(context.Background(), time.Time{}, 0, false)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	// limit > 100
+	_, err = s.ListChats(context.Background(), time.Time{}, 101, false)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListChatsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	(*chats)["a@s.whatsapp.net"] = store.Chat{JID: "a@s.whatsapp.net", Kind: "user", LastMsgAt: time.Unix(100, 0).UTC()}
+	(*chats)["b@s.whatsapp.net"] = store.Chat{JID: "b@s.whatsapp.net", Kind: "user", LastMsgAt: time.Unix(200, 0).UTC()}
+
+	got, err := s.ListChats(ctx, time.Time{}, 50, false)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	// in-memory fake sorts by LastMsgAt DESC
+	assert.Equal(t, "b@s.whatsapp.net", got[0].JID)
+}
+
+func TestGetChatNotFound(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	_, err := s.GetChat(context.Background(), "missing@s.whatsapp.net")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestGetChatHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*chats)["x@s.whatsapp.net"] = store.Chat{JID: "x@s.whatsapp.net", Name: "X", Kind: "user"}
+
+	got, err := s.GetChat(ctx, "x@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, "X", got.Name)
+}
+
+func TestListMessagesValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	// empty chat_jid
+	_, err := s.ListMessages(context.Background(), "", time.Time{}, 50)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	// limit out of range
+	_, err = s.ListMessages(context.Background(), "x@s.whatsapp.net", time.Time{}, 0)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+	_, err = s.ListMessages(context.Background(), "x@s.whatsapp.net", time.Time{}, 101)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListMessagesHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "x@s.whatsapp.net", Timestamp: time.Unix(100, 0).UTC(), Kind: "text", Body: "hi"}
+
+	got, err := s.ListMessages(ctx, "x@s.whatsapp.net", time.Time{}, 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "M1", got[0].ID)
 }
