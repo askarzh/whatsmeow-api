@@ -406,27 +406,93 @@ func (a *Adapter) OnIncomingMessage(handler func(IncomingMessage)) {
 	a.mu.Unlock()
 }
 
-// SendMedia is implemented in Plan 06 Task 4.
+// SendMedia uploads body to WhatsApp's media servers, builds the appropriate
+// proto message for the kind ("image" or "document"), and sends it to chatJID.
 func (a *Adapter) SendMedia(ctx context.Context, chatJID, kind, caption, filename, mime string, body []byte) (Sent, error) {
-	_ = ctx
-	_ = chatJID
-	_ = kind
-	_ = caption
-	_ = filename
-	_ = mime
-	_ = body
-	return Sent{}, errNotYetImplemented
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	var mediaType whatsmeow.MediaType
+	switch kind {
+	case "image":
+		mediaType = whatsmeow.MediaImage
+	case "document":
+		mediaType = whatsmeow.MediaDocument
+	default:
+		return Sent{}, fmt.Errorf("unsupported media kind: %q", kind)
+	}
+
+	upload, err := client.Upload(ctx, body, mediaType)
+	if err != nil {
+		return Sent{}, fmt.Errorf("upload: %w", err)
+	}
+
+	msg := buildMediaProto(kind, caption, filename, mime, body, upload)
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send media: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
 }
 
-var errNotYetImplemented = newSentinel("waclient: SendMedia not yet implemented")
+// buildMediaProto constructs the *waE2E.Message variant for the given kind.
+func buildMediaProto(kind, caption, filename, mime string, body []byte, upload whatsmeow.UploadResponse) *waE2E.Message {
+	length := uint64(len(body))
+	switch kind {
+	case "image":
+		return &waE2E.Message{
+			ImageMessage: &waE2E.ImageMessage{
+				URL:           proto.String(upload.URL),
+				DirectPath:    proto.String(upload.DirectPath),
+				MediaKey:      upload.MediaKey,
+				Mimetype:      proto.String(mime),
+				FileEncSHA256: upload.FileEncSHA256,
+				FileSHA256:    upload.FileSHA256,
+				FileLength:    proto.Uint64(length),
+				Caption:       optionalString(caption),
+			},
+		}
+	case "document":
+		return &waE2E.Message{
+			DocumentMessage: &waE2E.DocumentMessage{
+				URL:           proto.String(upload.URL),
+				DirectPath:    proto.String(upload.DirectPath),
+				MediaKey:      upload.MediaKey,
+				Mimetype:      proto.String(mime),
+				FileEncSHA256: upload.FileEncSHA256,
+				FileSHA256:    upload.FileSHA256,
+				FileLength:    proto.Uint64(length),
+				Title:         proto.String(filename),
+				FileName:      proto.String(filename),
+				Caption:       optionalString(caption),
+			},
+		}
+	default:
+		return nil
+	}
+}
 
-// newSentinel constructs a sentinel error without depending on the errors package
-// here. Defined locally to avoid widening imports for a single-task stub.
-func newSentinel(msg string) error { return sentinelErr(msg) }
-
-type sentinelErr string
-
-func (s sentinelErr) Error() string { return string(s) }
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return proto.String(s)
+}
 
 // compile-time interface check
 var _ WAClient = (*Adapter)(nil)
