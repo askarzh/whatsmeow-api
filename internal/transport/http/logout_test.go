@@ -29,6 +29,13 @@ func (f fakeLogoutSvc) ListContacts(context.Context) ([]store.Contact, error)   
 func (f fakeLogoutSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error)         { return nil, nil }
 func (f fakeLogoutSvc) Stats(context.Context) (service.Stats, error)                                 { return service.Stats{}, nil }
 
+func (f fakeLogoutSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeLogoutSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = fakeLogoutSvc{}
 
 func TestLogoutSuccess(t *testing.T) {

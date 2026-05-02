@@ -262,11 +262,23 @@ func (s *contactStore) Search(_ context.Context, query string, limit int) ([]sto
 	return out, nil
 }
 
-type mediaStore struct{}
+type mediaStore struct {
+	m map[string]store.MediaRef
+}
 
-func (s *mediaStore) Put(context.Context, store.MediaRef) error                      { return nil }
-func (s *mediaStore) GetByMessageID(context.Context, string) (store.MediaRef, error) {
-	return store.MediaRef{}, store.ErrNotFound
+func (s *mediaStore) Put(_ context.Context, ref store.MediaRef) error {
+	if s.m == nil {
+		s.m = map[string]store.MediaRef{}
+	}
+	s.m[ref.MessageID] = ref
+	return nil
+}
+func (s *mediaStore) GetByMessageID(_ context.Context, id string) (store.MediaRef, error) {
+	ref, ok := s.m[id]
+	if !ok {
+		return store.MediaRef{}, store.ErrNotFound
+	}
+	return ref, nil
 }
 
 type eventsStore struct{}
@@ -301,6 +313,26 @@ func (f *sendableFakeWA) SendText(_ context.Context, chatJID, text string) (wacl
 	f.sentArgs[0] = chatJID
 	f.sentArgs[1] = text
 	return f.sendResp, f.sendErr
+}
+
+// mediaSenderFakeWA captures SendMedia args.
+type mediaSenderFakeWA struct {
+	sendableFakeWA
+	mediaResp    waclient.Sent
+	mediaErr     error
+	gotMediaArgs [4]string // chatJID, kind, caption, filename
+	gotMediaMIME string
+	gotMediaBody []byte
+}
+
+func (f *mediaSenderFakeWA) SendMedia(_ context.Context, chatJID, kind, caption, filename, mime string, body []byte) (waclient.Sent, error) {
+	f.gotMediaArgs[0] = chatJID
+	f.gotMediaArgs[1] = kind
+	f.gotMediaArgs[2] = caption
+	f.gotMediaArgs[3] = filename
+	f.gotMediaMIME = mime
+	f.gotMediaBody = body
+	return f.mediaResp, f.mediaErr
 }
 
 func TestSendTextSuccess(t *testing.T) {
@@ -678,4 +710,104 @@ func TestStats(t *testing.T) {
 	assert.Equal(t, 3, got.Messages)
 	assert.Equal(t, 1, got.Contacts)
 	assert.Equal(t, 4, got.UnreadTotal)
+}
+
+func TestSendMediaSuccess(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, _ := newInMemoryBundle()
+	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)
+	wa := &mediaSenderFakeWA{
+		mediaResp: waclient.Sent{ID: "MID1", Timestamp: now, SenderJID: "me@s.whatsapp.net"},
+	}
+	ms := mediastore.New(t.TempDir())
+	s := service.New(wa, bundle, ms, nil)
+
+	body := []byte("fake-image-bytes")
+	got, err := s.SendMedia(ctx, service.SendMediaRequest{
+		ChatJID: "27821234567@s.whatsapp.net",
+		Kind:    "image",
+		Caption: "hello",
+		MIME:    "image/jpeg",
+		Body:    body,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "MID1", got.ID)
+	assert.Equal(t, "image", got.Kind)
+	assert.Equal(t, "hello", got.Body)
+
+	assert.Equal(t, "27821234567@s.whatsapp.net", wa.gotMediaArgs[0])
+	assert.Equal(t, "image", wa.gotMediaArgs[1])
+	assert.Equal(t, "hello", wa.gotMediaArgs[2])
+	assert.Equal(t, body, wa.gotMediaBody)
+
+	require.Contains(t, *msgs, "MID1")
+	require.Contains(t, *chats, "27821234567@s.whatsapp.net")
+}
+
+func TestSendMediaValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
+
+	cases := []struct {
+		label string
+		req   service.SendMediaRequest
+	}{
+		{"empty chat_jid", service.SendMediaRequest{Kind: "image", MIME: "image/jpeg", Body: []byte("x")}},
+		{"empty body", service.SendMediaRequest{ChatJID: "a@s.whatsapp.net", Kind: "image", MIME: "image/jpeg"}},
+		{"empty mime", service.SendMediaRequest{ChatJID: "a@s.whatsapp.net", Kind: "image", Body: []byte("x")}},
+		{"bad kind", service.SendMediaRequest{ChatJID: "a@s.whatsapp.net", Kind: "video", MIME: "video/mp4", Body: []byte("x")}},
+		{"document missing filename", service.SendMediaRequest{ChatJID: "a@s.whatsapp.net", Kind: "document", MIME: "application/pdf", Body: []byte("x")}},
+		{"caption too long", service.SendMediaRequest{ChatJID: "a@s.whatsapp.net", Kind: "image", MIME: "image/jpeg", Body: []byte("x"), Caption: strings.Repeat("c", 4097)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			_, err := s.SendMedia(context.Background(), tc.req)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+		})
+	}
+}
+
+func TestSendMediaNotConnected(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	wa := &mediaSenderFakeWA{mediaErr: waclient.ErrNotConnected}
+	s := service.New(wa, bundle, ms, nil)
+
+	_, err := s.SendMedia(context.Background(), service.SendMediaRequest{
+		ChatJID: "a@s.whatsapp.net", Kind: "image", MIME: "image/jpeg", Body: []byte("x"),
+	})
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestGetMediaRefHappyPath(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
+
+	require.NoError(t, bundle.Media.Put(context.Background(), store.MediaRef{
+		MessageID: "MID1", MIME: "image/jpeg", Size: 100, SHA256: "abc", Path: "/tmp/abc.jpg",
+	}))
+
+	got, err := s.GetMediaRef(context.Background(), "MID1")
+	require.NoError(t, err)
+	assert.Equal(t, "MID1", got.MessageID)
+	assert.Equal(t, "image/jpeg", got.MIME)
+}
+
+func TestGetMediaRefNotFound(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
+	_, err := s.GetMediaRef(context.Background(), "missing")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestGetMediaRefValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
+	_, err := s.GetMediaRef(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
 }

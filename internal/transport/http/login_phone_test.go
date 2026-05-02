@@ -53,6 +53,13 @@ func (f *fakeLoginPhoneSvc) SearchContacts(context.Context, string, int) ([]stor
 }
 func (f *fakeLoginPhoneSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
+func (f *fakeLoginPhoneSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f *fakeLoginPhoneSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = (*fakeLoginPhoneSvc)(nil)
 
 func TestLoginPhoneStreamsCodeThenSuccess(t *testing.T) {

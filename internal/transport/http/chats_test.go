@@ -70,6 +70,13 @@ func (f *fakeChatsSvc) SearchContacts(context.Context, string, int) ([]store.Con
 }
 func (f *fakeChatsSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
+func (f *fakeChatsSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f *fakeChatsSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = (*fakeChatsSvc)(nil)
 
 func TestListChatsHappyPath(t *testing.T) {
