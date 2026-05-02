@@ -259,6 +259,37 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	}); err != nil {
 		s.logger.Warn("persist incoming message failed", "id", msg.ID, "err", err)
 	}
+
+	if msg.MediaDownloader != nil {
+		go s.downloadAndPersistMedia(msg.ID, msg.MediaDownloader)
+	}
+}
+
+// downloadAndPersistMedia runs in a per-message goroutine: it calls the
+// downloader closure, writes the bytes to disk via the mediastore, and
+// persists the resulting media row. All failures are logged via slog and
+// never propagated.
+func (s *svc) downloadAndPersistMedia(messageID string, downloader func(context.Context) ([]byte, string, error)) {
+	ctx := context.Background()
+	body, mime, err := downloader(ctx)
+	if err != nil {
+		s.logger.Warn("download media failed", "id", messageID, "err", err)
+		return
+	}
+	sha, path, err := s.mediaStore.Write(ctx, body, mime)
+	if err != nil {
+		s.logger.Warn("write media to disk failed", "id", messageID, "err", err)
+		return
+	}
+	if err := s.bundle.Media.Put(ctx, store.MediaRef{
+		MessageID: messageID,
+		MIME:      mime,
+		Size:      int64(len(body)),
+		SHA256:    sha,
+		Path:      path,
+	}); err != nil {
+		s.logger.Warn("persist incoming media row failed", "id", messageID, "err", err)
+	}
 }
 
 // SendMedia uploads media bytes via whatsmeow, persists the outbound message

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/service"
 	"github.com/askarzh/whatsmeow-api/internal/store"
@@ -263,10 +265,13 @@ func (s *contactStore) Search(_ context.Context, query string, limit int) ([]sto
 }
 
 type mediaStore struct {
-	m map[string]store.MediaRef
+	mu sync.Mutex
+	m  map[string]store.MediaRef
 }
 
 func (s *mediaStore) Put(_ context.Context, ref store.MediaRef) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.m == nil {
 		s.m = map[string]store.MediaRef{}
 	}
@@ -274,6 +279,8 @@ func (s *mediaStore) Put(_ context.Context, ref store.MediaRef) error {
 	return nil
 }
 func (s *mediaStore) GetByMessageID(_ context.Context, id string) (store.MediaRef, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	ref, ok := s.m[id]
 	if !ok {
 		return store.MediaRef{}, store.ErrNotFound
@@ -810,4 +817,74 @@ func TestGetMediaRefValidation(t *testing.T) {
 	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
 	_, err := s.GetMediaRef(context.Background(), "")
 	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestHandleIncomingDownloadsMedia(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, ms, nil)
+	require.NotNil(t, wa.incoming)
+
+	body := []byte("inbound-media-bytes")
+	mime := "image/png"
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "MIN1",
+		ChatJID:   "chat@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "chat@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(),
+		Kind:      "image",
+		PushName:  "C",
+		MediaDownloader: func(_ context.Context) ([]byte, string, error) {
+			return body, mime, nil
+		},
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		_, err := bundle.Media.GetByMessageID(context.Background(), "MIN1")
+		if err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	got, err := bundle.Media.GetByMessageID(context.Background(), "MIN1")
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", got.MIME)
+	assert.Equal(t, int64(len(body)), got.Size)
+	assert.NotEmpty(t, got.Path)
+}
+
+func TestHandleIncomingDownloadFailureLogged(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	ms := mediastore.New(t.TempDir())
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, ms, nil)
+	require.NotNil(t, wa.incoming)
+
+	called := make(chan struct{}, 1)
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "MIN2",
+		ChatJID:   "chat@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "chat@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(),
+		Kind:      "image",
+		MediaDownloader: func(_ context.Context) ([]byte, string, error) {
+			called <- struct{}{}
+			return nil, "", errors.New("simulated download failure")
+		},
+	})
+
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("downloader never called")
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	_, err := bundle.Media.GetByMessageID(context.Background(), "MIN2")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
 }
