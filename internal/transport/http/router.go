@@ -46,6 +46,9 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodGet, "/chats/{jid}", GetChatHandler(d.Service))
 			r.Method(http.MethodGet, "/chats/{jid}/messages", ListMessagesByChatHandler(d.Service))
 			r.Method(http.MethodGet, "/messages/search", SearchMessagesHandler(d.Service))
+			r.Method(http.MethodGet, "/contacts", ListContactsHandler(d.Service))
+			r.Method(http.MethodGet, "/contacts/search", SearchContactsHandler(d.Service))
+			r.Method(http.MethodGet, "/stats", StatsHandler(d.Service))
 		})
 	})
 
