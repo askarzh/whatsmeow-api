@@ -105,7 +105,7 @@ func (a *Adapter) onEvent(raw any) {
 		a.logger.Warn("wa pair error", "err", evt.Error.Error())
 		a.signalPair("err-" + evt.Error.Error())
 	case *events.Message:
-		incoming, ok := translateIncoming(evt)
+		incoming, ok := translateIncoming(a, evt)
 		if !ok {
 			return // protocol/system message; skip
 		}
@@ -134,48 +134,86 @@ func (a *Adapter) signalPair(outcome string) {
 // translateIncoming converts a whatsmeow events.Message into our domain type.
 // Returns (_, false) for protocol/system events that have no text or media body,
 // and for self-sent (echo) messages so outgoing sends don't increment unread counts.
-func translateIncoming(evt *events.Message) (IncomingMessage, bool) {
+func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) {
 	if evt.Info.IsFromMe {
 		return IncomingMessage{}, false
 	}
-	kind, body, hasBody := messageKindAndBody(evt.Message)
-	if !hasBody {
+	kind, body, downloader, ok := messageKindAndBody(a, evt.Message)
+	if !ok {
 		return IncomingMessage{}, false
 	}
 	return IncomingMessage{
-		ID:        evt.Info.ID,
-		ChatJID:   evt.Info.Chat.String(),
-		ChatKind:  ChatKindFromJID(evt.Info.Chat.String()),
-		SenderJID: evt.Info.Sender.String(),
-		Timestamp: evt.Info.Timestamp,
-		Kind:      kind,
-		Body:      body,
-		PushName:  evt.Info.PushName,
+		ID:              evt.Info.ID,
+		ChatJID:         evt.Info.Chat.String(),
+		ChatKind:        ChatKindFromJID(evt.Info.Chat.String()),
+		SenderJID:       evt.Info.Sender.String(),
+		Timestamp:       evt.Info.Timestamp,
+		Kind:            kind,
+		Body:            body,
+		PushName:        evt.Info.PushName,
+		MediaDownloader: downloader,
 	}, true
 }
 
 // messageKindAndBody picks the relevant field out of a *waE2E.Message and
-// returns ("", "", false) for variants we don't persist (protocol/system, etc.).
-func messageKindAndBody(m *waE2E.Message) (string, string, bool) {
+// returns kind, text body (text kinds only), an optional downloader closure
+// (media kinds only), and a `false` for variants we don't persist.
+func messageKindAndBody(a *Adapter, m *waE2E.Message) (string, string, func(context.Context) ([]byte, string, error), bool) {
+	if m == nil {
+		return "", "", nil, false
+	}
 	switch {
-	case m == nil:
-		return "", "", false
 	case m.Conversation != nil:
-		return "text", *m.Conversation, true
+		return "text", *m.Conversation, nil, true
 	case m.ExtendedTextMessage != nil && m.ExtendedTextMessage.Text != nil:
-		return "text", *m.ExtendedTextMessage.Text, true
+		return "text", *m.ExtendedTextMessage.Text, nil, true
 	case m.ImageMessage != nil:
-		return "image", "", true
+		img := m.ImageMessage
+		return "image", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, img)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, img.GetMimetype(), nil
+		}, true
 	case m.VideoMessage != nil:
-		return "video", "", true
+		vid := m.VideoMessage
+		return "video", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, vid)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, vid.GetMimetype(), nil
+		}, true
 	case m.AudioMessage != nil:
-		return "audio", "", true
+		aud := m.AudioMessage
+		return "audio", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, aud)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, aud.GetMimetype(), nil
+		}, true
 	case m.DocumentMessage != nil:
-		return "document", "", true
+		doc := m.DocumentMessage
+		return "document", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, doc)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, doc.GetMimetype(), nil
+		}, true
 	case m.StickerMessage != nil:
-		return "sticker", "", true
+		stk := m.StickerMessage
+		return "sticker", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, stk)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, stk.GetMimetype(), nil
+		}, true
 	default:
-		return "", "", false
+		return "", "", nil, false
 	}
 }
 
