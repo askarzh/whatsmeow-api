@@ -31,6 +31,9 @@ type Service interface {
 	ListChats(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]store.Chat, error)
 	GetChat(ctx context.Context, jid string) (store.Chat, error)
 	ListMessages(ctx context.Context, chatJID string, beforeTS time.Time, limit int) ([]store.Message, error)
+	SearchMessages(ctx context.Context, query string, limit int) ([]store.Message, error)
+	ListContacts(ctx context.Context) ([]store.Contact, error)
+	SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error)
 }
 
 type svc struct {
@@ -144,6 +147,30 @@ func (s *svc) ListMessages(ctx context.Context, chatJID string, beforeTS time.Ti
 		return nil, err
 	}
 	return s.bundle.Messages.ListByChat(ctx, chatJID, limit, beforeTS)
+}
+
+func (s *svc) SearchMessages(ctx context.Context, query string, limit int) ([]store.Message, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("%w: q is required", ErrInvalidRequest)
+	}
+	if err := validateLimit(limit); err != nil {
+		return nil, err
+	}
+	return s.bundle.Messages.Search(ctx, query, limit)
+}
+
+func (s *svc) ListContacts(ctx context.Context) ([]store.Contact, error) {
+	return s.bundle.Contacts.List(ctx)
+}
+
+func (s *svc) SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("%w: q is required", ErrInvalidRequest)
+	}
+	if err := validateLimit(limit); err != nil {
+		return nil, err
+	}
+	return s.bundle.Contacts.Search(ctx, query, limit)
 }
 
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {

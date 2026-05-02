@@ -24,6 +24,9 @@ func (f fakeLogoutSvc) SendText(context.Context, string, string) (store.Message,
 func (f fakeLogoutSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) { return nil, nil }
 func (f fakeLogoutSvc) GetChat(context.Context, string) (store.Chat, error)                   { return store.Chat{}, nil }
 func (f fakeLogoutSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) { return nil, nil }
+func (f fakeLogoutSvc) SearchMessages(context.Context, string, int) ([]store.Message, error)         { return nil, nil }
+func (f fakeLogoutSvc) ListContacts(context.Context) ([]store.Contact, error)                        { return nil, nil }
+func (f fakeLogoutSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error)         { return nil, nil }
 
 var _ service.Service = fakeLogoutSvc{}
 

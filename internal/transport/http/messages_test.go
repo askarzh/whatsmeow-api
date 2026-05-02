@@ -49,6 +49,15 @@ func (f *fakeSendSvc) GetChat(context.Context, string) (store.Chat, error) {
 func (f *fakeSendSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) {
 	return nil, nil
 }
+func (f *fakeSendSvc) SearchMessages(context.Context, string, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) ListContacts(context.Context) ([]store.Contact, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
+	return nil, nil
+}
 
 var _ service.Service = (*fakeSendSvc)(nil)
 

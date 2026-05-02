@@ -194,8 +194,22 @@ func (s *messageStore) ListByChat(_ context.Context, chatJID string, limit int, 
 	}
 	return out, nil
 }
-func (s *messageStore) Search(context.Context, string, int) ([]store.Message, error) {
-	return nil, nil
+func (s *messageStore) Search(_ context.Context, query string, limit int) ([]store.Message, error) {
+	q := strings.ToLower(query)
+	var out []store.Message
+	for _, m := range s.m {
+		if m.DeletedAt != nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(m.Body), q) {
+			out = append(out, m)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp.After(out[j].Timestamp) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 func (s *messageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
 func (s *messageStore) Count(context.Context) (int, error) {
@@ -218,7 +232,14 @@ func (s *contactStore) Get(_ context.Context, jid string) (store.Contact, error)
 	}
 	return c, nil
 }
-func (s *contactStore) List(context.Context) ([]store.Contact, error) { return nil, nil }
+func (s *contactStore) List(_ context.Context) ([]store.Contact, error) {
+	var out []store.Contact
+	for _, c := range s.m {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].JID < out[j].JID })
+	return out, nil
+}
 func (s *contactStore) Count(context.Context) (int, error) { return len(s.m), nil }
 func (s *contactStore) Search(_ context.Context, query string, limit int) ([]store.Contact, error) {
 	q := strings.ToLower(query)
@@ -565,4 +586,56 @@ func TestListMessagesHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "M1", got[0].ID)
+}
+
+func TestSearchMessagesValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	// empty q
+	_, err := s.SearchMessages(context.Background(), "", 50)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	// limit out of range
+	_, err = s.SearchMessages(context.Background(), "x", 0)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+	_, err = s.SearchMessages(context.Background(), "x", 101)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListContactsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net", PushName: "A"}
+
+	got, err := s.ListContacts(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+}
+
+func TestSearchContactsValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	_, err := s.SearchContacts(context.Background(), "", 50)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+	_, err = s.SearchContacts(context.Background(), "x", 0)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSearchContactsHappyPath(t *testing.T) {
+	bundle, _, _, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net", PushName: "Alice"}
+	(*contacts)["b@s.whatsapp.net"] = store.Contact{JID: "b@s.whatsapp.net", PushName: "Bob"}
+
+	got, err := s.SearchContacts(context.Background(), "ali", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "a@s.whatsapp.net", got[0].JID)
 }
