@@ -9,8 +9,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 - **Plan 03 (app store)** shipped: SQLite-backed persistence layer with seven tables (`chats`, `messages`, `messages_fts`, `contacts`, `media`, `events_log`, `kv`) and `golang-migrate`-driven schema migrations that auto-run on `serve`.
 - **Plan 04 (send + receive)** shipped: `POST /v1/messages` sends a text message via whatsmeow and persists the outbound row. Inbound message events from whatsmeow are persisted automatically (text + media kinds; media metadata lands in Plan 06). `chats.last_msg_at`, `chats.unread_count`, and `contacts.push_name` update in real time.
 - **Plan 05 (list + search)** shipped: read-side endpoints over the app store. `GET /v1/chats` (cursor pagination), `GET /v1/chats/{jid}`, `GET /v1/chats/{jid}/messages` (cursor pagination), `GET /v1/messages/search?q=`, `GET /v1/contacts`, `GET /v1/contacts/search?q=`, `GET /v1/stats`.
+- **Plan 06 (media)** shipped: `POST /v1/media` (multipart/form-data) sends image + document outbound; `GET /v1/media/{message_id}` streams stored bytes; inbound media events auto-download in a background goroutine for all 5 kinds (image, video, audio, document, sticker). Files live under `data_dir/media/<sha[0:2]>/<sha>.<ext>` (content-addressable). Body cap configurable via `[http] max_body_bytes` (default 100 MiB).
 
-Reactions / replies / edits / deletes / read receipts land in Plan 07; media in Plan 06; SSE event stream in Plan 09.
+Reactions / replies / edits / deletes / read receipts land in Plan 07; SSE event stream in Plan 09. Video/audio/sticker outbound deferred to a sibling plan.
 
 ## Quick start
 
