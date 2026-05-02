@@ -406,5 +406,27 @@ func (a *Adapter) OnIncomingMessage(handler func(IncomingMessage)) {
 	a.mu.Unlock()
 }
 
+// SendMedia is implemented in Plan 06 Task 4.
+func (a *Adapter) SendMedia(ctx context.Context, chatJID, kind, caption, filename, mime string, body []byte) (Sent, error) {
+	_ = ctx
+	_ = chatJID
+	_ = kind
+	_ = caption
+	_ = filename
+	_ = mime
+	_ = body
+	return Sent{}, errNotYetImplemented
+}
+
+var errNotYetImplemented = newSentinel("waclient: SendMedia not yet implemented")
+
+// newSentinel constructs a sentinel error without depending on the errors package
+// here. Defined locally to avoid widening imports for a single-task stub.
+func newSentinel(msg string) error { return sentinelErr(msg) }
+
+type sentinelErr string
+
+func (s sentinelErr) Error() string { return string(s) }
+
 // compile-time interface check
 var _ WAClient = (*Adapter)(nil)

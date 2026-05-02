@@ -45,6 +45,9 @@ func (f *fakeWA) SendText(context.Context, string, string) (waclient.Sent, error
 func (f *fakeWA) OnIncomingMessage(h func(waclient.IncomingMessage)) {
 	f.incoming = h
 }
+func (f *fakeWA) SendMedia(context.Context, string, string, string, string, string, []byte) (waclient.Sent, error) {
+	return waclient.Sent{}, nil
+}
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"
