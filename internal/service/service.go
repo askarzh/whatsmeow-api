@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
@@ -46,17 +47,18 @@ type Service interface {
 }
 
 type svc struct {
-	wa     waclient.WAClient
-	bundle store.Bundle
-	logger *slog.Logger
+	wa         waclient.WAClient
+	bundle     store.Bundle
+	mediaStore *mediastore.Store
+	logger     *slog.Logger
 }
 
 // New constructs a Service backed by the given WAClient and store bundle.
-func New(wa waclient.WAClient, bundle store.Bundle, logger *slog.Logger) Service {
+func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store, logger *slog.Logger) Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &svc{wa: wa, bundle: bundle, logger: logger}
+	s := &svc{wa: wa, bundle: bundle, mediaStore: mediaStore, logger: logger}
 	wa.OnIncomingMessage(s.handleIncoming)
 	return s
 }
