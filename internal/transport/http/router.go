@@ -49,6 +49,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodGet, "/contacts", ListContactsHandler(d.Service))
 			r.Method(http.MethodGet, "/contacts/search", SearchContactsHandler(d.Service))
 			r.Method(http.MethodGet, "/stats", StatsHandler(d.Service))
+			r.Method(http.MethodPost, "/media", SendMediaHandler(d.Service, d.Config.HTTP.MaxBodyBytes))
+			r.Method(http.MethodGet, "/media/{message_id}", GetMediaHandler(d.Service))
 		})
 	})
 

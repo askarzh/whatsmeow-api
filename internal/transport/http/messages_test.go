@@ -68,6 +68,13 @@ func (f *fakeSendSvc) SearchContacts(context.Context, string, int) ([]store.Cont
 }
 func (f *fakeSendSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
+func (f *fakeSendSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f *fakeSendSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = (*fakeSendSvc)(nil)
 
 func TestSendTextHappyPath(t *testing.T) {

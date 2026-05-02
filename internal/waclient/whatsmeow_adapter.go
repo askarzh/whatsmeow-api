@@ -105,7 +105,7 @@ func (a *Adapter) onEvent(raw any) {
 		a.logger.Warn("wa pair error", "err", evt.Error.Error())
 		a.signalPair("err-" + evt.Error.Error())
 	case *events.Message:
-		incoming, ok := translateIncoming(evt)
+		incoming, ok := translateIncoming(a, evt)
 		if !ok {
 			return // protocol/system message; skip
 		}
@@ -134,48 +134,86 @@ func (a *Adapter) signalPair(outcome string) {
 // translateIncoming converts a whatsmeow events.Message into our domain type.
 // Returns (_, false) for protocol/system events that have no text or media body,
 // and for self-sent (echo) messages so outgoing sends don't increment unread counts.
-func translateIncoming(evt *events.Message) (IncomingMessage, bool) {
+func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) {
 	if evt.Info.IsFromMe {
 		return IncomingMessage{}, false
 	}
-	kind, body, hasBody := messageKindAndBody(evt.Message)
-	if !hasBody {
+	kind, body, downloader, ok := messageKindAndBody(a, evt.Message)
+	if !ok {
 		return IncomingMessage{}, false
 	}
 	return IncomingMessage{
-		ID:        evt.Info.ID,
-		ChatJID:   evt.Info.Chat.String(),
-		ChatKind:  ChatKindFromJID(evt.Info.Chat.String()),
-		SenderJID: evt.Info.Sender.String(),
-		Timestamp: evt.Info.Timestamp,
-		Kind:      kind,
-		Body:      body,
-		PushName:  evt.Info.PushName,
+		ID:              evt.Info.ID,
+		ChatJID:         evt.Info.Chat.String(),
+		ChatKind:        ChatKindFromJID(evt.Info.Chat.String()),
+		SenderJID:       evt.Info.Sender.String(),
+		Timestamp:       evt.Info.Timestamp,
+		Kind:            kind,
+		Body:            body,
+		PushName:        evt.Info.PushName,
+		MediaDownloader: downloader,
 	}, true
 }
 
 // messageKindAndBody picks the relevant field out of a *waE2E.Message and
-// returns ("", "", false) for variants we don't persist (protocol/system, etc.).
-func messageKindAndBody(m *waE2E.Message) (string, string, bool) {
+// returns kind, text body (text kinds only), an optional downloader closure
+// (media kinds only), and a `false` for variants we don't persist.
+func messageKindAndBody(a *Adapter, m *waE2E.Message) (string, string, func(context.Context) ([]byte, string, error), bool) {
+	if m == nil {
+		return "", "", nil, false
+	}
 	switch {
-	case m == nil:
-		return "", "", false
 	case m.Conversation != nil:
-		return "text", *m.Conversation, true
+		return "text", *m.Conversation, nil, true
 	case m.ExtendedTextMessage != nil && m.ExtendedTextMessage.Text != nil:
-		return "text", *m.ExtendedTextMessage.Text, true
+		return "text", *m.ExtendedTextMessage.Text, nil, true
 	case m.ImageMessage != nil:
-		return "image", "", true
+		img := m.ImageMessage
+		return "image", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, img)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, img.GetMimetype(), nil
+		}, true
 	case m.VideoMessage != nil:
-		return "video", "", true
+		vid := m.VideoMessage
+		return "video", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, vid)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, vid.GetMimetype(), nil
+		}, true
 	case m.AudioMessage != nil:
-		return "audio", "", true
+		aud := m.AudioMessage
+		return "audio", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, aud)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, aud.GetMimetype(), nil
+		}, true
 	case m.DocumentMessage != nil:
-		return "document", "", true
+		doc := m.DocumentMessage
+		return "document", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, doc)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, doc.GetMimetype(), nil
+		}, true
 	case m.StickerMessage != nil:
-		return "sticker", "", true
+		stk := m.StickerMessage
+		return "sticker", "", func(ctx context.Context) ([]byte, string, error) {
+			body, err := a.client.Download(ctx, stk)
+			if err != nil {
+				return nil, "", err
+			}
+			return body, stk.GetMimetype(), nil
+		}, true
 	default:
-		return "", "", false
+		return "", "", nil, false
 	}
 }
 
@@ -404,6 +442,94 @@ func (a *Adapter) OnIncomingMessage(handler func(IncomingMessage)) {
 	a.mu.Lock()
 	a.incomingHandler = handler
 	a.mu.Unlock()
+}
+
+// SendMedia uploads body to WhatsApp's media servers, builds the appropriate
+// proto message for the kind ("image" or "document"), and sends it to chatJID.
+func (a *Adapter) SendMedia(ctx context.Context, chatJID, kind, caption, filename, mime string, body []byte) (Sent, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	var mediaType whatsmeow.MediaType
+	switch kind {
+	case "image":
+		mediaType = whatsmeow.MediaImage
+	case "document":
+		mediaType = whatsmeow.MediaDocument
+	default:
+		return Sent{}, fmt.Errorf("unsupported media kind: %q", kind)
+	}
+
+	upload, err := client.Upload(ctx, body, mediaType)
+	if err != nil {
+		return Sent{}, fmt.Errorf("upload: %w", err)
+	}
+
+	msg := buildMediaProto(kind, caption, filename, mime, body, upload)
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send media: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
+}
+
+// buildMediaProto constructs the *waE2E.Message variant for the given kind.
+func buildMediaProto(kind, caption, filename, mime string, body []byte, upload whatsmeow.UploadResponse) *waE2E.Message {
+	length := uint64(len(body))
+	switch kind {
+	case "image":
+		return &waE2E.Message{
+			ImageMessage: &waE2E.ImageMessage{
+				URL:           proto.String(upload.URL),
+				DirectPath:    proto.String(upload.DirectPath),
+				MediaKey:      upload.MediaKey,
+				Mimetype:      proto.String(mime),
+				FileEncSHA256: upload.FileEncSHA256,
+				FileSHA256:    upload.FileSHA256,
+				FileLength:    proto.Uint64(length),
+				Caption:       optionalString(caption),
+			},
+		}
+	case "document":
+		return &waE2E.Message{
+			DocumentMessage: &waE2E.DocumentMessage{
+				URL:           proto.String(upload.URL),
+				DirectPath:    proto.String(upload.DirectPath),
+				MediaKey:      upload.MediaKey,
+				Mimetype:      proto.String(mime),
+				FileEncSHA256: upload.FileEncSHA256,
+				FileSHA256:    upload.FileSHA256,
+				FileLength:    proto.Uint64(length),
+				Title:         proto.String(filename),
+				FileName:      proto.String(filename),
+				Caption:       optionalString(caption),
+			},
+		}
+	default:
+		return nil
+	}
+}
+
+func optionalString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return proto.String(s)
 }
 
 // compile-time interface check

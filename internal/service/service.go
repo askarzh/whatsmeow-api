@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
@@ -24,6 +25,16 @@ type Stats struct {
 	Messages    int `json:"messages"`
 	Contacts    int `json:"contacts"`
 	UnreadTotal int `json:"unread_total"`
+}
+
+// SendMediaRequest is the input for Service.SendMedia.
+type SendMediaRequest struct {
+	ChatJID  string
+	Kind     string // "image" | "document"
+	Caption  string // optional, max 4096 bytes
+	Filename string // required for document; informational for image
+	MIME     string
+	Body     []byte
 }
 
 // Service is the use-case layer the HTTP handlers depend on.
@@ -43,20 +54,25 @@ type Service interface {
 	ListContacts(ctx context.Context) ([]store.Contact, error)
 	SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error)
 	Stats(ctx context.Context) (Stats, error)
+
+	// Plan 06
+	SendMedia(ctx context.Context, req SendMediaRequest) (store.Message, error)
+	GetMediaRef(ctx context.Context, messageID string) (store.MediaRef, error)
 }
 
 type svc struct {
-	wa     waclient.WAClient
-	bundle store.Bundle
-	logger *slog.Logger
+	wa         waclient.WAClient
+	bundle     store.Bundle
+	mediaStore *mediastore.Store
+	logger     *slog.Logger
 }
 
 // New constructs a Service backed by the given WAClient and store bundle.
-func New(wa waclient.WAClient, bundle store.Bundle, logger *slog.Logger) Service {
+func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store, logger *slog.Logger) Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &svc{wa: wa, bundle: bundle, logger: logger}
+	s := &svc{wa: wa, bundle: bundle, mediaStore: mediaStore, logger: logger}
 	wa.OnIncomingMessage(s.handleIncoming)
 	return s
 }
@@ -243,4 +259,116 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	}); err != nil {
 		s.logger.Warn("persist incoming message failed", "id", msg.ID, "err", err)
 	}
+
+	if msg.MediaDownloader != nil {
+		go s.downloadAndPersistMedia(msg.ID, msg.MediaDownloader)
+	}
+}
+
+// downloadAndPersistMedia runs in a per-message goroutine: it calls the
+// downloader closure, writes the bytes to disk via the mediastore, and
+// persists the resulting media row. All failures are logged via slog and
+// never propagated.
+func (s *svc) downloadAndPersistMedia(messageID string, downloader func(context.Context) ([]byte, string, error)) {
+	ctx := context.Background()
+	body, mime, err := downloader(ctx)
+	if err != nil {
+		s.logger.Warn("download media failed", "id", messageID, "err", err)
+		return
+	}
+	sha, path, err := s.mediaStore.Write(ctx, body, mime)
+	if err != nil {
+		s.logger.Warn("write media to disk failed", "id", messageID, "err", err)
+		return
+	}
+	if err := s.bundle.Media.Put(ctx, store.MediaRef{
+		MessageID: messageID,
+		MIME:      mime,
+		Size:      int64(len(body)),
+		SHA256:    sha,
+		Path:      path,
+	}); err != nil {
+		s.logger.Warn("persist incoming media row failed", "id", messageID, "err", err)
+	}
+}
+
+// SendMedia uploads media bytes via whatsmeow, persists the outbound message
+// and a content-addressed file under the media store.
+func (s *svc) SendMedia(ctx context.Context, req SendMediaRequest) (store.Message, error) {
+	if strings.TrimSpace(req.ChatJID) == "" {
+		return store.Message{}, fmt.Errorf("%w: chat_jid is required", ErrInvalidRequest)
+	}
+	if len(req.Body) == 0 {
+		return store.Message{}, fmt.Errorf("%w: body is required", ErrInvalidRequest)
+	}
+	if strings.TrimSpace(req.MIME) == "" {
+		return store.Message{}, fmt.Errorf("%w: mime is required", ErrInvalidRequest)
+	}
+	if req.Kind != "image" && req.Kind != "document" {
+		return store.Message{}, fmt.Errorf("%w: kind must be image or document", ErrInvalidRequest)
+	}
+	if req.Kind == "document" && strings.TrimSpace(req.Filename) == "" {
+		return store.Message{}, fmt.Errorf("%w: filename is required for documents", ErrInvalidRequest)
+	}
+	if len(req.Caption) > maxTextLen {
+		return store.Message{}, fmt.Errorf("%w: caption exceeds %d bytes", ErrInvalidRequest, maxTextLen)
+	}
+
+	sent, err := s.wa.SendMedia(ctx, req.ChatJID, req.Kind, req.Caption, req.Filename, req.MIME, req.Body)
+	if err != nil {
+		return store.Message{}, err
+	}
+
+	sha, path, werr := s.mediaStore.Write(ctx, req.Body, req.MIME)
+	if werr != nil {
+		s.logger.Warn("write media to disk failed", "id", sent.ID, "err", werr)
+		sha = ""
+		path = ""
+	}
+
+	msg := store.Message{
+		ID:        sent.ID,
+		ChatJID:   req.ChatJID,
+		SenderJID: sent.SenderJID,
+		Timestamp: sent.Timestamp,
+		Kind:      req.Kind,
+		Body:      req.Caption,
+	}
+	if err := s.bundle.Messages.Put(ctx, msg); err != nil {
+		s.logger.Warn("persist outbound media message failed", "id", sent.ID, "err", err)
+	}
+
+	if path != "" {
+		if err := s.bundle.Media.Put(ctx, store.MediaRef{
+			MessageID: sent.ID,
+			MIME:      req.MIME,
+			Size:      int64(len(req.Body)),
+			SHA256:    sha,
+			Path:      path,
+		}); err != nil {
+			s.logger.Warn("persist media row failed", "id", sent.ID, "err", err)
+		}
+	}
+
+	existing, err := s.bundle.Chats.Get(ctx, req.ChatJID)
+	if err != nil {
+		existing = store.Chat{JID: req.ChatJID, Kind: waclient.ChatKindFromJID(req.ChatJID)}
+	}
+	existing.LastMsgAt = sent.Timestamp
+	if existing.Kind == "" {
+		existing.Kind = waclient.ChatKindFromJID(req.ChatJID)
+	}
+	if err := s.bundle.Chats.Put(ctx, existing); err != nil {
+		s.logger.Warn("upsert chat on send media failed", "chat_jid", req.ChatJID, "err", err)
+	}
+
+	return msg, nil
+}
+
+// GetMediaRef looks up the media row for a given message ID.
+func (s *svc) GetMediaRef(ctx context.Context, messageID string) (store.MediaRef, error) {
+	if strings.TrimSpace(messageID) == "" {
+		return store.MediaRef{}, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+	return s.bundle.Media.GetByMessageID(ctx, messageID)
 }

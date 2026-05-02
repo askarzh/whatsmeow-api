@@ -39,6 +39,13 @@ func (f fakeStatsSvc) ListContacts(context.Context) ([]store.Contact, error)    
 func (f fakeStatsSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error)  { return nil, nil }
 func (f fakeStatsSvc) Stats(context.Context) (service.Stats, error)                          { return f.resp, nil }
 
+func (f fakeStatsSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeStatsSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = fakeStatsSvc{}
 
 func TestStatsHappyPath(t *testing.T) {

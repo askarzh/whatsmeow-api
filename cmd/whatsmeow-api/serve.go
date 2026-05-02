@@ -10,6 +10,7 @@ import (
 
 	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/askarzh/whatsmeow-api/internal/logging"
+	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/service"
 	sqlitestore "github.com/askarzh/whatsmeow-api/internal/store/sqlite"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
@@ -80,7 +81,9 @@ func serveCmd() *cobra.Command {
 			defer func() { _ = appDB.Close() }()
 			logger.Info("app store opened", "path", appPath)
 
-			svc := service.New(wa, appDB.Bundle(), logger)
+			mediaDir := filepath.Join(cfg.DataDir, "media")
+			mediaSt := mediastore.New(mediaDir)
+			svc := service.New(wa, appDB.Bundle(), mediaSt, logger)
 
 			if err := wa.Resume(ctx); err != nil {
 				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)

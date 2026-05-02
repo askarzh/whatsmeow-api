@@ -26,3 +26,7 @@ retention_hours = 24
 [metrics]
 # Expose Prometheus /metrics. Off by default.
 enabled = false
+
+[http]
+# Maximum body size for POST /v1/media (uploads). Default 100 MiB.
+max_body_bytes = 104857600

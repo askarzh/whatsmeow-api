@@ -54,6 +54,10 @@ type IncomingMessage struct {
 	Kind      string // "text" | "image" | "video" | "audio" | "document" | "sticker"
 	Body      string // empty for non-text
 	PushName  string
+	// Plan 06: closure that downloads the media bytes for this message.
+	// nil for non-media kinds. Adapter populates with a closure capturing the
+	// proto submessage; service calls it from a goroutine.
+	MediaDownloader func(ctx context.Context) ([]byte, string /* mime */, error)
 }
 
 // WAClient is the abstraction over whatsmeow used by the rest of the daemon.
@@ -68,6 +72,9 @@ type WAClient interface {
 	// Plan 04 additions
 	SendText(ctx context.Context, chatJID, text string) (Sent, error)
 	OnIncomingMessage(handler func(IncomingMessage))
+
+	// Plan 06
+	SendMedia(ctx context.Context, chatJID, kind, caption, filename, mime string, body []byte) (Sent, error)
 }
 
 // Sentinel errors so callers can distinguish failure modes without parsing strings.

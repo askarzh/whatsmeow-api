@@ -31,6 +31,13 @@ func (f fakeStatusSvc) ListContacts(context.Context) ([]store.Contact, error)   
 func (f fakeStatusSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error)         { return nil, nil }
 func (f fakeStatusSvc) Stats(context.Context) (service.Stats, error)                                 { return service.Stats{}, nil }
 
+func (f fakeStatusSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeStatusSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = fakeStatusSvc{}
 
 func TestStatusHandlerDisconnected(t *testing.T) {

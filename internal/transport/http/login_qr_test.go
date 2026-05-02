@@ -51,6 +51,13 @@ func (f fakeLoginQRSvc) SearchContacts(context.Context, string, int) ([]store.Co
 }
 func (f fakeLoginQRSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
+func (f fakeLoginQRSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeLoginQRSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
+	return store.MediaRef{}, nil
+}
+
 var _ service.Service = fakeLoginQRSvc{}
 
 func TestLoginQRStreamsCodesThenSuccess(t *testing.T) {

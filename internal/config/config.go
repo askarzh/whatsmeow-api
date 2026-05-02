@@ -22,6 +22,7 @@ type Config struct {
 	Log     LogConfig     `koanf:"log"`
 	Events  EventsConfig  `koanf:"events"`
 	Metrics MetricsConfig `koanf:"metrics"`
+	HTTP    HTTPConfig    `koanf:"http"`
 }
 
 type ServerConfig struct {
@@ -52,6 +53,10 @@ type MetricsConfig struct {
 	Enabled bool `koanf:"enabled"`
 }
 
+type HTTPConfig struct {
+	MaxBodyBytes int64 `koanf:"max_body_bytes"`
+}
+
 func defaults() map[string]any {
 	return map[string]any{
 		"data_dir":               "./data",
@@ -65,6 +70,7 @@ func defaults() map[string]any {
 		"log.format":             "text",
 		"events.retention_hours": 24,
 		"metrics.enabled":        false,
+		"http.max_body_bytes":    int64(100 * 1024 * 1024),
 	}
 }
 
