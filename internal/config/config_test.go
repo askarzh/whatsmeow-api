@@ -24,6 +24,7 @@ func TestDefaults(t *testing.T) {
 	assert.Equal(t, "text", c.Log.Format)
 	assert.Equal(t, 24, c.Events.RetentionHours)
 	assert.False(t, c.Metrics.Enabled)
+	assert.Equal(t, int64(100*1024*1024), c.HTTP.MaxBodyBytes)
 }
 
 func TestLoadFromTOML(t *testing.T) {
