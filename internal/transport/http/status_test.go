@@ -29,6 +29,7 @@ func (f fakeStatusSvc) ListMessages(context.Context, string, time.Time, int) ([]
 func (f fakeStatusSvc) SearchMessages(context.Context, string, int) ([]store.Message, error)         { return nil, nil }
 func (f fakeStatusSvc) ListContacts(context.Context) ([]store.Contact, error)                        { return nil, nil }
 func (f fakeStatusSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error)         { return nil, nil }
+func (f fakeStatusSvc) Stats(context.Context) (service.Stats, error)                                 { return service.Stats{}, nil }
 
 var _ service.Service = fakeStatusSvc{}
 

@@ -49,6 +49,7 @@ func (f fakeLoginQRSvc) ListContacts(context.Context) ([]store.Contact, error) {
 func (f fakeLoginQRSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
 	return nil, nil
 }
+func (f fakeLoginQRSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
 var _ service.Service = fakeLoginQRSvc{}
 

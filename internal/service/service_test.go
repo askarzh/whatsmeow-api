@@ -639,3 +639,24 @@ func TestSearchContactsHappyPath(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "a@s.whatsapp.net", got[0].JID)
 }
+
+func TestStats(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	(*chats)["a@s.whatsapp.net"] = store.Chat{JID: "a@s.whatsapp.net", UnreadCount: 3}
+	(*chats)["b@s.whatsapp.net"] = store.Chat{JID: "b@s.whatsapp.net", UnreadCount: 1}
+	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "a@s.whatsapp.net", Body: "x"}
+	(*msgs)["M2"] = store.Message{ID: "M2", ChatJID: "a@s.whatsapp.net", Body: "y"}
+	(*msgs)["M3"] = store.Message{ID: "M3", ChatJID: "b@s.whatsapp.net", Body: "z"}
+	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net"}
+
+	got, err := s.Stats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.Chats)
+	assert.Equal(t, 3, got.Messages)
+	assert.Equal(t, 1, got.Contacts)
+	assert.Equal(t, 4, got.UnreadTotal)
+}

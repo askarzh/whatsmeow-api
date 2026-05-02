@@ -58,6 +58,7 @@ func (f *fakeSendSvc) ListContacts(context.Context) ([]store.Contact, error) {
 func (f *fakeSendSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
 	return nil, nil
 }
+func (f *fakeSendSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
 var _ service.Service = (*fakeSendSvc)(nil)
 

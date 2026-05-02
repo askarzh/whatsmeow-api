@@ -18,6 +18,14 @@ import (
 // ErrInvalidRequest is returned when the caller provides invalid input.
 var ErrInvalidRequest = errors.New("service: invalid request")
 
+// Stats holds aggregate counts for the local store.
+type Stats struct {
+	Chats       int `json:"chats"`
+	Messages    int `json:"messages"`
+	Contacts    int `json:"contacts"`
+	UnreadTotal int `json:"unread_total"`
+}
+
 // Service is the use-case layer the HTTP handlers depend on.
 type Service interface {
 	Status(ctx context.Context) (waclient.Status, error)
@@ -34,6 +42,7 @@ type Service interface {
 	SearchMessages(ctx context.Context, query string, limit int) ([]store.Message, error)
 	ListContacts(ctx context.Context) ([]store.Contact, error)
 	SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error)
+	Stats(ctx context.Context) (Stats, error)
 }
 
 type svc struct {
@@ -171,6 +180,31 @@ func (s *svc) SearchContacts(ctx context.Context, query string, limit int) ([]st
 		return nil, err
 	}
 	return s.bundle.Contacts.Search(ctx, query, limit)
+}
+
+func (s *svc) Stats(ctx context.Context) (Stats, error) {
+	chatsCount, err := s.bundle.Chats.Count(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats chats: %w", err)
+	}
+	msgsCount, err := s.bundle.Messages.Count(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats messages: %w", err)
+	}
+	contactsCount, err := s.bundle.Contacts.Count(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats contacts: %w", err)
+	}
+	unread, err := s.bundle.Chats.TotalUnread(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats unread: %w", err)
+	}
+	return Stats{
+		Chats:       chatsCount,
+		Messages:    msgsCount,
+		Contacts:    contactsCount,
+		UnreadTotal: unread,
+	}, nil
 }
 
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {

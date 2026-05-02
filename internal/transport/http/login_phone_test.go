@@ -51,6 +51,7 @@ func (f *fakeLoginPhoneSvc) ListContacts(context.Context) ([]store.Contact, erro
 func (f *fakeLoginPhoneSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
 	return nil, nil
 }
+func (f *fakeLoginPhoneSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
 var _ service.Service = (*fakeLoginPhoneSvc)(nil)
 
