@@ -640,6 +640,21 @@ func TestSearchContactsHappyPath(t *testing.T) {
 	assert.Equal(t, "a@s.whatsapp.net", got[0].JID)
 }
 
+func TestSearchMessagesHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "c@s.whatsapp.net", Body: "the quick fox", Timestamp: time.Unix(100, 0).UTC()}
+	(*msgs)["M2"] = store.Message{ID: "M2", ChatJID: "c@s.whatsapp.net", Body: "lazy dog", Timestamp: time.Unix(200, 0).UTC()}
+
+	got, err := s.SearchMessages(ctx, "fox", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "M1", got[0].ID)
+}
+
 func TestStats(t *testing.T) {
 	ctx := context.Background()
 	bundle, chats, msgs, contacts := newInMemoryBundle()

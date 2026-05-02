@@ -75,7 +75,12 @@ func SearchMessagesHandler(svc service.Service) http.Handler {
 		}
 		msgs, err := svc.SearchMessages(r.Context(), q, limit)
 		if err != nil {
-			WriteProblem(w, http.StatusInternalServerError, "internal", err.Error())
+			switch {
+			case errors.Is(err, service.ErrInvalidRequest):
+				WriteProblem(w, http.StatusBadRequest, "request.invalid", err.Error())
+			default:
+				WriteProblem(w, http.StatusInternalServerError, "internal", err.Error())
+			}
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"messages": encodeMessages(msgs)})

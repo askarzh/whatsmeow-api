@@ -1,6 +1,7 @@
 package http
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
@@ -34,7 +35,12 @@ func SearchContactsHandler(svc service.Service) http.Handler {
 		}
 		contacts, err := svc.SearchContacts(r.Context(), q, limit)
 		if err != nil {
-			WriteProblem(w, http.StatusInternalServerError, "internal", err.Error())
+			switch {
+			case errors.Is(err, service.ErrInvalidRequest):
+				WriteProblem(w, http.StatusBadRequest, "request.invalid", err.Error())
+			default:
+				WriteProblem(w, http.StatusInternalServerError, "internal", err.Error())
+			}
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"contacts": encodeContacts(contacts)})
