@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/askarzh/whatsmeow-api/internal/store"
 )
@@ -55,6 +56,39 @@ func (s *ContactStore) List(ctx context.Context) ([]store.Contact, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+func (s *ContactStore) Search(ctx context.Context, query string, limit int) ([]store.Contact, error) {
+	pat := "%" + strings.ToLower(query) + "%"
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+contactColumns+` FROM contacts
+		WHERE lower(coalesce(push_name, '')) LIKE ?
+		   OR lower(coalesce(full_name, '')) LIKE ?
+		   OR lower(coalesce(business_name, '')) LIKE ?
+		ORDER BY jid ASC
+		LIMIT ?
+	`, pat, pat, pat, limit)
+	if err != nil {
+		return nil, fmt.Errorf("contacts search: %w", err)
+	}
+	defer rows.Close()
+	var out []store.Contact
+	for rows.Next() {
+		c, err := scanContact(rows)
+		if err != nil {
+			return nil, fmt.Errorf("contacts search scan: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *ContactStore) Count(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM contacts`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("contacts count: %w", err)
+	}
+	return n, nil
 }
 
 func scanContact(s scanner) (store.Contact, error) {

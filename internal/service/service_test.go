@@ -154,7 +154,15 @@ func (s *chatStore) List(_ context.Context, before time.Time, limit int, include
 	}
 	return out, nil
 }
-func (s *chatStore) SetArchived(context.Context, string, bool) error  { return nil }
+func (s *chatStore) SetArchived(context.Context, string, bool) error { return nil }
+func (s *chatStore) Count(context.Context) (int, error) { return len(s.m), nil }
+func (s *chatStore) TotalUnread(context.Context) (int, error) {
+	total := 0
+	for _, c := range s.m {
+		total += c.UnreadCount
+	}
+	return total, nil
+}
 
 type messageStore struct{ m memMessages }
 
@@ -173,6 +181,15 @@ func (s *messageStore) Search(context.Context, string, int) ([]store.Message, er
 	return nil, nil
 }
 func (s *messageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+func (s *messageStore) Count(context.Context) (int, error) {
+	n := 0
+	for _, m := range s.m {
+		if m.DeletedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
 
 type contactStore struct{ m memContacts }
 
@@ -185,6 +202,23 @@ func (s *contactStore) Get(_ context.Context, jid string) (store.Contact, error)
 	return c, nil
 }
 func (s *contactStore) List(context.Context) ([]store.Contact, error) { return nil, nil }
+func (s *contactStore) Count(context.Context) (int, error) { return len(s.m), nil }
+func (s *contactStore) Search(_ context.Context, query string, limit int) ([]store.Contact, error) {
+	q := strings.ToLower(query)
+	var out []store.Contact
+	for _, c := range s.m {
+		if strings.Contains(strings.ToLower(c.PushName), q) ||
+			strings.Contains(strings.ToLower(c.FullName), q) ||
+			strings.Contains(strings.ToLower(c.BusinessName), q) {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].JID < out[j].JID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
 
 type mediaStore struct{}
 
@@ -323,6 +357,7 @@ func (f *failingMessageStore) Search(context.Context, string, int) ([]store.Mess
 	return nil, nil
 }
 func (f *failingMessageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+func (f *failingMessageStore) Count(context.Context) (int, error)                  { return 0, nil }
 
 func TestSendTextPreservesUnreadCount(t *testing.T) {
 	ctx := context.Background()

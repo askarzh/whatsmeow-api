@@ -168,6 +168,35 @@ func TestMessagePutIsUpsert(t *testing.T) {
 	assert.Equal(t, "M1", searchNew[0].ID)
 }
 
+func TestMessageCount(t *testing.T) {
+	ctx := context.Background()
+	b := newTestStore(t).Bundle()
+	chat := "c@s.whatsapp.net"
+	seedChat(t, b, chat)
+
+	n, err := b.Messages.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+
+	require.NoError(t, b.Messages.Put(ctx, store.Message{
+		ID: "M1", ChatJID: chat, SenderJID: chat, Timestamp: time.Unix(100, 0).UTC(),
+		Kind: "text", Body: "a",
+	}))
+	require.NoError(t, b.Messages.Put(ctx, store.Message{
+		ID: "M2", ChatJID: chat, SenderJID: chat, Timestamp: time.Unix(200, 0).UTC(),
+		Kind: "text", Body: "b",
+	}))
+	n, err = b.Messages.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+
+	// Soft-deleted messages are excluded.
+	require.NoError(t, b.Messages.SoftDelete(ctx, "M1", time.Unix(300, 0).UTC()))
+	n, err = b.Messages.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+}
+
 func TestMessageSearchExcludesSoftDeleted(t *testing.T) {
 	ctx := context.Background()
 	b := newTestStore(t).Bundle()

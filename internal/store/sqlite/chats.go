@@ -87,6 +87,22 @@ func (s *ChatStore) SetArchived(ctx context.Context, jid string, archived bool) 
 	return nil
 }
 
+func (s *ChatStore) Count(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM chats`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("chats count: %w", err)
+	}
+	return n, nil
+}
+
+func (s *ChatStore) TotalUnread(ctx context.Context) (int, error) {
+	var n sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(unread_count), 0) FROM chats`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("chats total_unread: %w", err)
+	}
+	return int(n.Int64), nil
+}
+
 func scanChat(s scanner) (store.Chat, error) {
 	var (
 		c           store.Chat

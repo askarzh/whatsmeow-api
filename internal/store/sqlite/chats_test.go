@@ -104,6 +104,38 @@ func TestChatList(t *testing.T) {
 	assert.Equal(t, "b@s.whatsapp.net", got[0].JID)
 }
 
+func TestChatCount(t *testing.T) {
+	ctx := context.Background()
+	chats := newTestStore(t).Bundle().Chats
+
+	n, err := chats.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, n)
+
+	require.NoError(t, chats.Put(ctx, store.Chat{JID: "a@s.whatsapp.net", Kind: "user"}))
+	require.NoError(t, chats.Put(ctx, store.Chat{JID: "b@s.whatsapp.net", Kind: "user"}))
+	n, err = chats.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+}
+
+func TestChatTotalUnread(t *testing.T) {
+	ctx := context.Background()
+	chats := newTestStore(t).Bundle().Chats
+
+	got, err := chats.TotalUnread(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, got)
+
+	require.NoError(t, chats.Put(ctx, store.Chat{JID: "a@s.whatsapp.net", Kind: "user", UnreadCount: 3}))
+	require.NoError(t, chats.Put(ctx, store.Chat{JID: "b@s.whatsapp.net", Kind: "user", UnreadCount: 0}))
+	require.NoError(t, chats.Put(ctx, store.Chat{JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 7}))
+
+	got, err = chats.TotalUnread(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 10, got)
+}
+
 func TestChatSetArchived(t *testing.T) {
 	ctx := context.Background()
 	chats := newTestStore(t).Bundle().Chats
