@@ -59,3 +59,30 @@ func SendTextHandler(svc service.Service) http.Handler {
 		})
 	})
 }
+
+// SearchMessagesHandler handles GET /v1/messages/search?q=...&limit=...
+func SearchMessagesHandler(svc service.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("q")
+		if q == "" {
+			WriteProblem(w, http.StatusBadRequest, "request.invalid", "q is required")
+			return
+		}
+		limit, err := parseLimit(r)
+		if err != nil {
+			WriteProblem(w, http.StatusBadRequest, "request.invalid", err.Error())
+			return
+		}
+		msgs, err := svc.SearchMessages(r.Context(), q, limit)
+		if err != nil {
+			switch {
+			case errors.Is(err, service.ErrInvalidRequest):
+				WriteProblem(w, http.StatusBadRequest, "request.invalid", err.Error())
+			default:
+				WriteProblem(w, http.StatusInternalServerError, "internal", err.Error())
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"messages": encodeMessages(msgs)})
+	})
+}

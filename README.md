@@ -8,8 +8,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 - **Plan 02 (waclient + login)** shipped: real WhatsApp connection via whatsmeow, SSE-driven QR + phone-pair login (`/v1/login/qr`, `/v1/login/phone`), `/v1/logout`, auto-resume on startup, and CLI subcommands (`login qr`, `login phone <number>`, `status`, `logout`) that drive the daemon over its own API.
 - **Plan 03 (app store)** shipped: SQLite-backed persistence layer with seven tables (`chats`, `messages`, `messages_fts`, `contacts`, `media`, `events_log`, `kv`) and `golang-migrate`-driven schema migrations that auto-run on `serve`.
 - **Plan 04 (send + receive)** shipped: `POST /v1/messages` sends a text message via whatsmeow and persists the outbound row. Inbound message events from whatsmeow are persisted automatically (text + media kinds; media metadata lands in Plan 06). `chats.last_msg_at`, `chats.unread_count`, and `contacts.push_name` update in real time.
+- **Plan 05 (list + search)** shipped: read-side endpoints over the app store. `GET /v1/chats` (cursor pagination), `GET /v1/chats/{jid}`, `GET /v1/chats/{jid}/messages` (cursor pagination), `GET /v1/messages/search?q=`, `GET /v1/contacts`, `GET /v1/contacts/search?q=`, `GET /v1/stats`.
 
-Listing / searching the persisted messages lands in Plan 05; reactions / replies / edits / deletes / read receipts in Plan 07.
+Reactions / replies / edits / deletes / read receipts land in Plan 07; media in Plan 06; SSE event stream in Plan 09.
 
 ## Quick start
 

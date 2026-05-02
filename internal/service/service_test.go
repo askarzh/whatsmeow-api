@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -130,8 +131,38 @@ func (s *chatStore) Get(_ context.Context, jid string) (store.Chat, error) {
 	}
 	return c, nil
 }
-func (s *chatStore) List(context.Context, bool) ([]store.Chat, error) { return nil, nil }
-func (s *chatStore) SetArchived(context.Context, string, bool) error  { return nil }
+func (s *chatStore) List(_ context.Context, before time.Time, limit int, includeArchived bool) ([]store.Chat, error) {
+	var out []store.Chat
+	for _, c := range s.m {
+		if !includeArchived && c.Archived {
+			continue
+		}
+		if !before.IsZero() && (c.LastMsgAt.IsZero() || !c.LastMsgAt.Before(before)) {
+			continue
+		}
+		out = append(out, c)
+	}
+	// sort by last_msg_at DESC, jid ASC for stability
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].LastMsgAt.Equal(out[j].LastMsgAt) {
+			return out[i].LastMsgAt.After(out[j].LastMsgAt)
+		}
+		return out[i].JID < out[j].JID
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+func (s *chatStore) SetArchived(context.Context, string, bool) error { return nil }
+func (s *chatStore) Count(context.Context) (int, error) { return len(s.m), nil }
+func (s *chatStore) TotalUnread(context.Context) (int, error) {
+	total := 0
+	for _, c := range s.m {
+		total += c.UnreadCount
+	}
+	return total, nil
+}
 
 type messageStore struct{ m memMessages }
 
@@ -143,13 +174,53 @@ func (s *messageStore) Get(_ context.Context, id string) (store.Message, error) 
 	}
 	return msg, nil
 }
-func (s *messageStore) ListByChat(context.Context, string, int, time.Time) ([]store.Message, error) {
-	return nil, nil
+func (s *messageStore) ListByChat(_ context.Context, chatJID string, limit int, beforeTS time.Time) ([]store.Message, error) {
+	var out []store.Message
+	for _, m := range s.m {
+		if m.ChatJID != chatJID {
+			continue
+		}
+		if m.DeletedAt != nil {
+			continue
+		}
+		if !beforeTS.IsZero() && !m.Timestamp.Before(beforeTS) {
+			continue
+		}
+		out = append(out, m)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp.After(out[j].Timestamp) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
-func (s *messageStore) Search(context.Context, string, int) ([]store.Message, error) {
-	return nil, nil
+func (s *messageStore) Search(_ context.Context, query string, limit int) ([]store.Message, error) {
+	q := strings.ToLower(query)
+	var out []store.Message
+	for _, m := range s.m {
+		if m.DeletedAt != nil {
+			continue
+		}
+		if strings.Contains(strings.ToLower(m.Body), q) {
+			out = append(out, m)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp.After(out[j].Timestamp) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 func (s *messageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+func (s *messageStore) Count(context.Context) (int, error) {
+	n := 0
+	for _, m := range s.m {
+		if m.DeletedAt == nil {
+			n++
+		}
+	}
+	return n, nil
+}
 
 type contactStore struct{ m memContacts }
 
@@ -161,7 +232,31 @@ func (s *contactStore) Get(_ context.Context, jid string) (store.Contact, error)
 	}
 	return c, nil
 }
-func (s *contactStore) List(context.Context) ([]store.Contact, error) { return nil, nil }
+func (s *contactStore) List(_ context.Context) ([]store.Contact, error) {
+	var out []store.Contact
+	for _, c := range s.m {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].JID < out[j].JID })
+	return out, nil
+}
+func (s *contactStore) Count(context.Context) (int, error) { return len(s.m), nil }
+func (s *contactStore) Search(_ context.Context, query string, limit int) ([]store.Contact, error) {
+	q := strings.ToLower(query)
+	var out []store.Contact
+	for _, c := range s.m {
+		if strings.Contains(strings.ToLower(c.PushName), q) ||
+			strings.Contains(strings.ToLower(c.FullName), q) ||
+			strings.Contains(strings.ToLower(c.BusinessName), q) {
+			out = append(out, c)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].JID < out[j].JID })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
 
 type mediaStore struct{}
 
@@ -300,6 +395,7 @@ func (f *failingMessageStore) Search(context.Context, string, int) ([]store.Mess
 	return nil, nil
 }
 func (f *failingMessageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+func (f *failingMessageStore) Count(context.Context) (int, error)                  { return 0, nil }
 
 func TestSendTextPreservesUnreadCount(t *testing.T) {
 	ctx := context.Background()
@@ -411,4 +507,171 @@ func TestHandleIncomingEmptyPushName(t *testing.T) {
 
 	// No contact upsert when push_name is empty.
 	assert.NotContains(t, *contacts, "sender@s.whatsapp.net")
+}
+
+func TestListChatsValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	// limit < 1
+	_, err := s.ListChats(context.Background(), time.Time{}, 0, false)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	// limit > 100
+	_, err = s.ListChats(context.Background(), time.Time{}, 101, false)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListChatsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	(*chats)["a@s.whatsapp.net"] = store.Chat{JID: "a@s.whatsapp.net", Kind: "user", LastMsgAt: time.Unix(100, 0).UTC()}
+	(*chats)["b@s.whatsapp.net"] = store.Chat{JID: "b@s.whatsapp.net", Kind: "user", LastMsgAt: time.Unix(200, 0).UTC()}
+
+	got, err := s.ListChats(ctx, time.Time{}, 50, false)
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	// in-memory fake sorts by LastMsgAt DESC
+	assert.Equal(t, "b@s.whatsapp.net", got[0].JID)
+}
+
+func TestGetChatNotFound(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	_, err := s.GetChat(context.Background(), "missing@s.whatsapp.net")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestGetChatHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*chats)["x@s.whatsapp.net"] = store.Chat{JID: "x@s.whatsapp.net", Name: "X", Kind: "user"}
+
+	got, err := s.GetChat(ctx, "x@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, "X", got.Name)
+}
+
+func TestListMessagesValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	// empty chat_jid
+	_, err := s.ListMessages(context.Background(), "", time.Time{}, 50)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	// limit out of range
+	_, err = s.ListMessages(context.Background(), "x@s.whatsapp.net", time.Time{}, 0)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+	_, err = s.ListMessages(context.Background(), "x@s.whatsapp.net", time.Time{}, 101)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListMessagesHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "x@s.whatsapp.net", Timestamp: time.Unix(100, 0).UTC(), Kind: "text", Body: "hi"}
+
+	got, err := s.ListMessages(ctx, "x@s.whatsapp.net", time.Time{}, 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "M1", got[0].ID)
+}
+
+func TestSearchMessagesValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	// empty q
+	_, err := s.SearchMessages(context.Background(), "", 50)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	// limit out of range
+	_, err = s.SearchMessages(context.Background(), "x", 0)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+	_, err = s.SearchMessages(context.Background(), "x", 101)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListContactsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net", PushName: "A"}
+
+	got, err := s.ListContacts(ctx)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+}
+
+func TestSearchContactsValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	_, err := s.SearchContacts(context.Background(), "", 50)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+	_, err = s.SearchContacts(context.Background(), "x", 0)
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSearchContactsHappyPath(t *testing.T) {
+	bundle, _, _, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net", PushName: "Alice"}
+	(*contacts)["b@s.whatsapp.net"] = store.Contact{JID: "b@s.whatsapp.net", PushName: "Bob"}
+
+	got, err := s.SearchContacts(context.Background(), "ali", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "a@s.whatsapp.net", got[0].JID)
+}
+
+func TestSearchMessagesHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "c@s.whatsapp.net", Body: "the quick fox", Timestamp: time.Unix(100, 0).UTC()}
+	(*msgs)["M2"] = store.Message{ID: "M2", ChatJID: "c@s.whatsapp.net", Body: "lazy dog", Timestamp: time.Unix(200, 0).UTC()}
+
+	got, err := s.SearchMessages(ctx, "fox", 50)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "M1", got[0].ID)
+}
+
+func TestStats(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, contacts := newInMemoryBundle()
+	wa := &sendableFakeWA{}
+	s := service.New(wa, bundle, nil)
+
+	(*chats)["a@s.whatsapp.net"] = store.Chat{JID: "a@s.whatsapp.net", UnreadCount: 3}
+	(*chats)["b@s.whatsapp.net"] = store.Chat{JID: "b@s.whatsapp.net", UnreadCount: 1}
+	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "a@s.whatsapp.net", Body: "x"}
+	(*msgs)["M2"] = store.Message{ID: "M2", ChatJID: "a@s.whatsapp.net", Body: "y"}
+	(*msgs)["M3"] = store.Message{ID: "M3", ChatJID: "b@s.whatsapp.net", Body: "z"}
+	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net"}
+
+	got, err := s.Stats(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 2, got.Chats)
+	assert.Equal(t, 3, got.Messages)
+	assert.Equal(t, 1, got.Contacts)
+	assert.Equal(t, 4, got.UnreadTotal)
 }

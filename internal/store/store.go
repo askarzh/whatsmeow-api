@@ -61,8 +61,10 @@ type EventLogEntry struct {
 type ChatStore interface {
 	Put(ctx context.Context, c Chat) error
 	Get(ctx context.Context, jid string) (Chat, error)
-	List(ctx context.Context, includeArchived bool) ([]Chat, error)
+	List(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]Chat, error)
 	SetArchived(ctx context.Context, jid string, archived bool) error
+	Count(ctx context.Context) (int, error)
+	TotalUnread(ctx context.Context) (int, error)
 }
 
 // MessageStore manages the messages table and FTS index.
@@ -72,6 +74,7 @@ type MessageStore interface {
 	ListByChat(ctx context.Context, chatJID string, limit int, beforeTS time.Time) ([]Message, error)
 	Search(ctx context.Context, query string, limit int) ([]Message, error)
 	SoftDelete(ctx context.Context, id string, when time.Time) error
+	Count(ctx context.Context) (int, error)
 }
 
 // ContactStore manages the contacts table.
@@ -79,6 +82,8 @@ type ContactStore interface {
 	Put(ctx context.Context, c Contact) error
 	Get(ctx context.Context, jid string) (Contact, error)
 	List(ctx context.Context) ([]Contact, error)
+	Search(ctx context.Context, query string, limit int) ([]Contact, error)
+	Count(ctx context.Context) (int, error)
 }
 
 // MediaStore manages the media table.

@@ -25,6 +25,12 @@ type fakeSendSvc struct {
 
 	gotChat string
 	gotText string
+
+	// Plan 05 search capture
+	searchResp     []store.Message
+	searchErr      error
+	gotSearchQ     string
+	gotSearchLimit int
 }
 
 func (f *fakeSendSvc) Status(context.Context) (waclient.Status, error) { return waclient.Status{}, nil }
@@ -40,6 +46,27 @@ func (f *fakeSendSvc) SendText(_ context.Context, chat, text string) (store.Mess
 	f.gotText = text
 	return f.resp, f.err
 }
+func (f *fakeSendSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) GetChat(context.Context, string) (store.Chat, error) {
+	return store.Chat{}, nil
+}
+func (f *fakeSendSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) SearchMessages(_ context.Context, q string, limit int) ([]store.Message, error) {
+	f.gotSearchQ = q
+	f.gotSearchLimit = limit
+	return f.searchResp, f.searchErr
+}
+func (f *fakeSendSvc) ListContacts(context.Context) ([]store.Contact, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
 var _ service.Service = (*fakeSendSvc)(nil)
 
@@ -122,6 +149,56 @@ func TestSendTextNotConnected(t *testing.T) {
 	require.NoError(t, err)
 	defer res.Body.Close()
 	assert.Equal(t, http.StatusConflict, res.StatusCode)
+}
+
+func TestSearchMessagesHappyPath(t *testing.T) {
+	f := &fakeSendSvc{searchResp: []store.Message{
+		{ID: "M1", ChatJID: "c@s.whatsapp.net", Body: "fox", Timestamp: time.Now()},
+	}}
+	srv := httptest.NewServer(httpapi.SearchMessagesHandler(f))
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "?q=fox&limit=20")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+
+	var body struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	require.NoError(t, json.NewDecoder(res.Body).Decode(&body))
+	require.Len(t, body.Messages, 1)
+	assert.Equal(t, "M1", body.Messages[0]["id"])
+	assert.Equal(t, "fox", f.gotSearchQ)
+	assert.Equal(t, 20, f.gotSearchLimit)
+}
+
+func TestSearchMessagesDefaultLimit(t *testing.T) {
+	f := &fakeSendSvc{}
+	srv := httptest.NewServer(httpapi.SearchMessagesHandler(f))
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "?q=anything")
+	require.NoError(t, err)
+	defer res.Body.Close()
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	assert.Equal(t, 50, f.gotSearchLimit)
+}
+
+func TestSearchMessagesValidation(t *testing.T) {
+	f := &fakeSendSvc{}
+	srv := httptest.NewServer(httpapi.SearchMessagesHandler(f))
+	defer srv.Close()
+
+	cases := []string{"", "limit=0", "q=x&limit=foo", "q=x&limit=101"}
+	for _, q := range cases {
+		t.Run(q, func(t *testing.T) {
+			res, err := http.Get(srv.URL + "?" + q)
+			require.NoError(t, err)
+			defer res.Body.Close()
+			assert.Equal(t, http.StatusBadRequest, res.StatusCode)
+		})
+	}
 }
 
 func TestSendTextInternalError(t *testing.T) {

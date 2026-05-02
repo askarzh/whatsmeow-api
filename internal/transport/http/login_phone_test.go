@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
 	"github.com/askarzh/whatsmeow-api/internal/store"
@@ -32,6 +33,25 @@ func (f *fakeLoginPhoneSvc) Logout(context.Context) error { return nil }
 func (f *fakeLoginPhoneSvc) SendText(context.Context, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
+func (f *fakeLoginPhoneSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
+	return nil, nil
+}
+func (f *fakeLoginPhoneSvc) GetChat(context.Context, string) (store.Chat, error) {
+	return store.Chat{}, nil
+}
+func (f *fakeLoginPhoneSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (f *fakeLoginPhoneSvc) SearchMessages(context.Context, string, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (f *fakeLoginPhoneSvc) ListContacts(context.Context) ([]store.Contact, error) {
+	return nil, nil
+}
+func (f *fakeLoginPhoneSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
+	return nil, nil
+}
+func (f *fakeLoginPhoneSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
 
 var _ service.Service = (*fakeLoginPhoneSvc)(nil)
 

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
@@ -16,6 +17,14 @@ import (
 
 // ErrInvalidRequest is returned when the caller provides invalid input.
 var ErrInvalidRequest = errors.New("service: invalid request")
+
+// Stats holds aggregate counts for the local store.
+type Stats struct {
+	Chats       int `json:"chats"`
+	Messages    int `json:"messages"`
+	Contacts    int `json:"contacts"`
+	UnreadTotal int `json:"unread_total"`
+}
 
 // Service is the use-case layer the HTTP handlers depend on.
 type Service interface {
@@ -25,6 +34,15 @@ type Service interface {
 	Logout(ctx context.Context) error
 
 	SendText(ctx context.Context, chatJID, text string) (store.Message, error)
+
+	// Plan 05
+	ListChats(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]store.Chat, error)
+	GetChat(ctx context.Context, jid string) (store.Chat, error)
+	ListMessages(ctx context.Context, chatJID string, beforeTS time.Time, limit int) ([]store.Message, error)
+	SearchMessages(ctx context.Context, query string, limit int) ([]store.Message, error)
+	ListContacts(ctx context.Context) ([]store.Contact, error)
+	SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error)
+	Stats(ctx context.Context) (Stats, error)
 }
 
 type svc struct {
@@ -62,7 +80,18 @@ func (s *svc) Logout(ctx context.Context) error {
 	return s.wa.Logout(ctx)
 }
 
-const maxTextLen = 4096
+const (
+	maxTextLen = 4096
+	minLimit   = 1
+	maxLimit   = 100
+)
+
+func validateLimit(limit int) error {
+	if limit < minLimit || limit > maxLimit {
+		return fmt.Errorf("%w: limit must be in [%d, %d]", ErrInvalidRequest, minLimit, maxLimit)
+	}
+	return nil
+}
 
 func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message, error) {
 	if strings.TrimSpace(chatJID) == "" {
@@ -103,6 +132,79 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 		s.logger.Warn("upsert chat on send failed", "chat_jid", chatJID, "err", err)
 	}
 	return msg, nil
+}
+
+func (s *svc) ListChats(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]store.Chat, error) {
+	if err := validateLimit(limit); err != nil {
+		return nil, err
+	}
+	return s.bundle.Chats.List(ctx, beforeMsgAt, limit, includeArchived)
+}
+
+func (s *svc) GetChat(ctx context.Context, jid string) (store.Chat, error) {
+	if strings.TrimSpace(jid) == "" {
+		return store.Chat{}, fmt.Errorf("%w: jid is required", ErrInvalidRequest)
+	}
+	return s.bundle.Chats.Get(ctx, jid)
+}
+
+func (s *svc) ListMessages(ctx context.Context, chatJID string, beforeTS time.Time, limit int) ([]store.Message, error) {
+	if strings.TrimSpace(chatJID) == "" {
+		return nil, fmt.Errorf("%w: chat_jid is required", ErrInvalidRequest)
+	}
+	if err := validateLimit(limit); err != nil {
+		return nil, err
+	}
+	return s.bundle.Messages.ListByChat(ctx, chatJID, limit, beforeTS)
+}
+
+func (s *svc) SearchMessages(ctx context.Context, query string, limit int) ([]store.Message, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("%w: q is required", ErrInvalidRequest)
+	}
+	if err := validateLimit(limit); err != nil {
+		return nil, err
+	}
+	return s.bundle.Messages.Search(ctx, query, limit)
+}
+
+func (s *svc) ListContacts(ctx context.Context) ([]store.Contact, error) {
+	return s.bundle.Contacts.List(ctx)
+}
+
+func (s *svc) SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, fmt.Errorf("%w: q is required", ErrInvalidRequest)
+	}
+	if err := validateLimit(limit); err != nil {
+		return nil, err
+	}
+	return s.bundle.Contacts.Search(ctx, query, limit)
+}
+
+func (s *svc) Stats(ctx context.Context) (Stats, error) {
+	chatsCount, err := s.bundle.Chats.Count(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats chats: %w", err)
+	}
+	msgsCount, err := s.bundle.Messages.Count(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats messages: %w", err)
+	}
+	contactsCount, err := s.bundle.Contacts.Count(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats contacts: %w", err)
+	}
+	unread, err := s.bundle.Chats.TotalUnread(ctx)
+	if err != nil {
+		return Stats{}, fmt.Errorf("stats unread: %w", err)
+	}
+	return Stats{
+		Chats:       chatsCount,
+		Messages:    msgsCount,
+		Contacts:    contactsCount,
+		UnreadTotal: unread,
+	}, nil
 }
 
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {

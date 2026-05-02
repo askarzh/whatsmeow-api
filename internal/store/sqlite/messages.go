@@ -110,6 +110,14 @@ func (s *MessageStore) SoftDelete(ctx context.Context, id string, when time.Time
 	return nil
 }
 
+func (s *MessageStore) Count(ctx context.Context) (int, error) {
+	var n int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM messages WHERE deleted_at IS NULL`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("messages count: %w", err)
+	}
+	return n, nil
+}
+
 func scanMessage(s scanner) (store.Message, error) {
 	var (
 		m         store.Message
