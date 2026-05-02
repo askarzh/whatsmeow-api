@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -130,7 +131,29 @@ func (s *chatStore) Get(_ context.Context, jid string) (store.Chat, error) {
 	}
 	return c, nil
 }
-func (s *chatStore) List(context.Context, bool) ([]store.Chat, error) { return nil, nil }
+func (s *chatStore) List(_ context.Context, before time.Time, limit int, includeArchived bool) ([]store.Chat, error) {
+	var out []store.Chat
+	for _, c := range s.m {
+		if !includeArchived && c.Archived {
+			continue
+		}
+		if !before.IsZero() && (c.LastMsgAt.IsZero() || !c.LastMsgAt.Before(before)) {
+			continue
+		}
+		out = append(out, c)
+	}
+	// sort by last_msg_at DESC, jid ASC for stability
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].LastMsgAt.Equal(out[j].LastMsgAt) {
+			return out[i].LastMsgAt.After(out[j].LastMsgAt)
+		}
+		return out[i].JID < out[j].JID
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
 func (s *chatStore) SetArchived(context.Context, string, bool) error  { return nil }
 
 type messageStore struct{ m memMessages }

@@ -61,7 +61,7 @@ type EventLogEntry struct {
 type ChatStore interface {
 	Put(ctx context.Context, c Chat) error
 	Get(ctx context.Context, jid string) (Chat, error)
-	List(ctx context.Context, includeArchived bool) ([]Chat, error)
+	List(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]Chat, error)
 	SetArchived(ctx context.Context, jid string, archived bool) error
 }
 
