@@ -23,8 +23,12 @@ type fakeLoginPhoneSvc struct {
 	gotNum string
 }
 
-func (f *fakeLoginPhoneSvc) Status(context.Context) (waclient.Status, error)        { return waclient.Status{}, nil }
-func (f *fakeLoginPhoneSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error) { return nil, nil }
+func (f *fakeLoginPhoneSvc) Status(context.Context) (waclient.Status, error) {
+	return waclient.Status{}, nil
+}
+func (f *fakeLoginPhoneSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error) {
+	return nil, nil
+}
 func (f *fakeLoginPhoneSvc) LoginPhone(_ context.Context, n string) (<-chan waclient.PairEvent, error) {
 	f.gotNum = n
 	return f.ch, f.err
@@ -51,7 +55,9 @@ func (f *fakeLoginPhoneSvc) ListContacts(context.Context) ([]store.Contact, erro
 func (f *fakeLoginPhoneSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
 	return nil, nil
 }
-func (f *fakeLoginPhoneSvc) Stats(context.Context) (service.Stats, error) { return service.Stats{}, nil }
+func (f *fakeLoginPhoneSvc) Stats(context.Context) (service.Stats, error) {
+	return service.Stats{}, nil
+}
 
 func (f *fakeLoginPhoneSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
 	return store.Message{}, nil
@@ -69,9 +75,11 @@ func (f *fakeLoginPhoneSvc) SendReaction(context.Context, string, string) error 
 func (f *fakeLoginPhoneSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
-func (f *fakeLoginPhoneSvc) MarkMessageRead(context.Context, string) error               { return nil }
-func (f *fakeLoginPhoneSvc) SendTyping(context.Context, string, string) error            { return nil }
-func (f *fakeLoginPhoneSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f *fakeLoginPhoneSvc) MarkMessageRead(context.Context, string) error    { return nil }
+func (f *fakeLoginPhoneSvc) SendTyping(context.Context, string, string) error { return nil }
+func (f *fakeLoginPhoneSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) {
+	return nil, nil
+}
 func (f *fakeLoginPhoneSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }

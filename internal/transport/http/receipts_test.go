@@ -19,15 +19,15 @@ import (
 
 // fakeReceiptsSvc is a full service.Service stub for receipts + typing tests.
 type fakeReceiptsSvc struct {
-	markReadErr  error
-	listResp     []store.Receipt
-	listErr      error
+	markReadErr   error
+	listResp      []store.Receipt
+	listErr       error
 	sendTypingErr error
 
-	gotMarkReadID   string
-	gotListID       string
-	gotTypingJID    string
-	gotTypingState  string
+	gotMarkReadID  string
+	gotListID      string
+	gotTypingJID   string
+	gotTypingState string
 }
 
 func (f *fakeReceiptsSvc) Status(context.Context) (waclient.Status, error) {
@@ -71,7 +71,7 @@ func (f *fakeReceiptsSvc) GetMediaRef(context.Context, string) (store.MediaRef, 
 func (f *fakeReceiptsSvc) EditMessage(context.Context, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
-func (f *fakeReceiptsSvc) DeleteMessage(context.Context, string) error { return nil }
+func (f *fakeReceiptsSvc) DeleteMessage(context.Context, string) error        { return nil }
 func (f *fakeReceiptsSvc) SendReaction(context.Context, string, string) error { return nil }
 func (f *fakeReceiptsSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil

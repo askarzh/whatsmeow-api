@@ -22,7 +22,9 @@ type fakeLoginQRSvc struct {
 	err error
 }
 
-func (f fakeLoginQRSvc) Status(context.Context) (waclient.Status, error)        { return waclient.Status{}, nil }
+func (f fakeLoginQRSvc) Status(context.Context) (waclient.Status, error) {
+	return waclient.Status{}, nil
+}
 func (f fakeLoginQRSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error) { return f.ch, f.err }
 func (f fakeLoginQRSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) {
 	return nil, nil
@@ -67,9 +69,11 @@ func (f fakeLoginQRSvc) SendReaction(context.Context, string, string) error {
 func (f fakeLoginQRSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
-func (f fakeLoginQRSvc) MarkMessageRead(context.Context, string) error               { return nil }
-func (f fakeLoginQRSvc) SendTyping(context.Context, string, string) error            { return nil }
-func (f fakeLoginQRSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f fakeLoginQRSvc) MarkMessageRead(context.Context, string) error    { return nil }
+func (f fakeLoginQRSvc) SendTyping(context.Context, string, string) error { return nil }
+func (f fakeLoginQRSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) {
+	return nil, nil
+}
 func (f fakeLoginQRSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }

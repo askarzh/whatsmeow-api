@@ -77,8 +77,8 @@ func (f *fakeGroupsSvc) GetMediaRef(context.Context, string) (store.MediaRef, er
 func (f *fakeGroupsSvc) EditMessage(context.Context, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
-func (f *fakeGroupsSvc) DeleteMessage(context.Context, string) error              { return nil }
-func (f *fakeGroupsSvc) SendReaction(context.Context, string, string) error       { return nil }
+func (f *fakeGroupsSvc) DeleteMessage(context.Context, string) error        { return nil }
+func (f *fakeGroupsSvc) SendReaction(context.Context, string, string) error { return nil }
 func (f *fakeGroupsSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }

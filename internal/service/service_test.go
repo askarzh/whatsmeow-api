@@ -58,10 +58,10 @@ func (f *fakeWA) OnIncomingMessage(h func(waclient.IncomingMessage)) {
 func (f *fakeWA) SendMedia(context.Context, string, string, string, string, string, []byte) (waclient.Sent, error) {
 	return waclient.Sent{}, nil
 }
-func (f *fakeWA) SendReaction(context.Context, string, string, string) error { return nil }
+func (f *fakeWA) SendReaction(context.Context, string, string, string) error        { return nil }
 func (f *fakeWA) MarkRead(context.Context, string, string, string, time.Time) error { return nil }
-func (f *fakeWA) SendChatPresence(context.Context, string, string) error  { return nil }
-func (f *fakeWA) OnIncomingReceipt(h func(waclient.IncomingReceipt))     { f.incomingReceipt = h }
+func (f *fakeWA) SendChatPresence(context.Context, string, string) error            { return nil }
+func (f *fakeWA) OnIncomingReceipt(h func(waclient.IncomingReceipt))                { f.incomingReceipt = h }
 func (f *fakeWA) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }
@@ -186,7 +186,7 @@ func (s *chatStore) List(_ context.Context, before time.Time, limit int, include
 	return out, nil
 }
 func (s *chatStore) SetArchived(context.Context, string, bool) error { return nil }
-func (s *chatStore) Count(context.Context) (int, error) { return len(s.m), nil }
+func (s *chatStore) Count(context.Context) (int, error)              { return len(s.m), nil }
 func (s *chatStore) TotalUnread(context.Context) (int, error) {
 	total := 0
 	for _, c := range s.m {

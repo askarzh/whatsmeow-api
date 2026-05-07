@@ -27,17 +27,25 @@ func (f fakeStatsSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error) 
 func (f fakeStatsSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) {
 	return nil, nil
 }
-func (f fakeStatsSvc) Logout(context.Context) error                                         { return nil }
-func (f fakeStatsSvc) SendText(context.Context, string, string, string) (store.Message, error) { return store.Message{}, nil }
-func (f fakeStatsSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) { return nil, nil }
-func (f fakeStatsSvc) GetChat(context.Context, string) (store.Chat, error)                   { return store.Chat{}, nil }
+func (f fakeStatsSvc) Logout(context.Context) error { return nil }
+func (f fakeStatsSvc) SendText(context.Context, string, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeStatsSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
+	return nil, nil
+}
+func (f fakeStatsSvc) GetChat(context.Context, string) (store.Chat, error) { return store.Chat{}, nil }
 func (f fakeStatsSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) {
 	return nil, nil
 }
-func (f fakeStatsSvc) SearchMessages(context.Context, string, int) ([]store.Message, error)  { return nil, nil }
-func (f fakeStatsSvc) ListContacts(context.Context) ([]store.Contact, error)                 { return nil, nil }
-func (f fakeStatsSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error)  { return nil, nil }
-func (f fakeStatsSvc) Stats(context.Context) (service.Stats, error)                          { return f.resp, nil }
+func (f fakeStatsSvc) SearchMessages(context.Context, string, int) ([]store.Message, error) {
+	return nil, nil
+}
+func (f fakeStatsSvc) ListContacts(context.Context) ([]store.Contact, error) { return nil, nil }
+func (f fakeStatsSvc) SearchContacts(context.Context, string, int) ([]store.Contact, error) {
+	return nil, nil
+}
+func (f fakeStatsSvc) Stats(context.Context) (service.Stats, error) { return f.resp, nil }
 
 func (f fakeStatsSvc) SendMedia(context.Context, service.SendMediaRequest) (store.Message, error) {
 	return store.Message{}, nil
@@ -55,8 +63,8 @@ func (f fakeStatsSvc) SendReaction(context.Context, string, string) error {
 func (f fakeStatsSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
-func (f fakeStatsSvc) MarkMessageRead(context.Context, string) error               { return nil }
-func (f fakeStatsSvc) SendTyping(context.Context, string, string) error            { return nil }
+func (f fakeStatsSvc) MarkMessageRead(context.Context, string) error                 { return nil }
+func (f fakeStatsSvc) SendTyping(context.Context, string, string) error              { return nil }
 func (f fakeStatsSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
 func (f fakeStatsSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil

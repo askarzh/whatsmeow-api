@@ -84,9 +84,11 @@ func (f *fakeMediaSvc) SendReaction(context.Context, string, string) error {
 func (f *fakeMediaSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
-func (f *fakeMediaSvc) MarkMessageRead(context.Context, string) error               { return nil }
-func (f *fakeMediaSvc) SendTyping(context.Context, string, string) error            { return nil }
-func (f *fakeMediaSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f *fakeMediaSvc) MarkMessageRead(context.Context, string) error    { return nil }
+func (f *fakeMediaSvc) SendTyping(context.Context, string, string) error { return nil }
+func (f *fakeMediaSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) {
+	return nil, nil
+}
 func (f *fakeMediaSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }
