@@ -23,8 +23,9 @@ type fakeSendSvc struct {
 	resp store.Message
 	err  error
 
-	gotChat string
-	gotText string
+	gotChat    string
+	gotText    string
+	gotReplyTo string // Plan 07a
 
 	// Plan 05 search capture
 	searchResp     []store.Message
@@ -41,9 +42,10 @@ func (f *fakeSendSvc) LoginPhone(context.Context, string) (<-chan waclient.PairE
 	return nil, nil
 }
 func (f *fakeSendSvc) Logout(context.Context) error { return nil }
-func (f *fakeSendSvc) SendText(_ context.Context, chat, text string) (store.Message, error) {
+func (f *fakeSendSvc) SendText(_ context.Context, chat, text, replyTo string) (store.Message, error) {
 	f.gotChat = chat
 	f.gotText = text
+	f.gotReplyTo = replyTo
 	return f.resp, f.err
 }
 func (f *fakeSendSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {

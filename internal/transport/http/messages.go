@@ -12,6 +12,7 @@ import (
 type sendTextRequest struct {
 	ChatJID string `json:"chat_jid"`
 	Text    string `json:"text"`
+	ReplyTo string `json:"reply_to,omitempty"`
 }
 
 const maxTextLen = 4096
@@ -37,7 +38,7 @@ func SendTextHandler(svc service.Service) http.Handler {
 			return
 		}
 
-		msg, err := svc.SendText(r.Context(), req.ChatJID, req.Text)
+		msg, err := svc.SendText(r.Context(), req.ChatJID, req.Text, req.ReplyTo)
 		if err != nil {
 			switch {
 			case errors.Is(err, service.ErrInvalidRequest):

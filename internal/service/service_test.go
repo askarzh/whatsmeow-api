@@ -42,7 +42,13 @@ func (f *fakeWA) LoginPhone(_ context.Context, n string) (<-chan waclient.PairEv
 }
 func (f *fakeWA) Logout(context.Context) error { return f.logoutErr }
 func (f *fakeWA) Close() error                 { f.closed = true; return nil }
-func (f *fakeWA) SendText(context.Context, string, string) (waclient.Sent, error) {
+func (f *fakeWA) SendText(context.Context, string, string, string) (waclient.Sent, error) {
+	return waclient.Sent{}, nil
+}
+func (f *fakeWA) SendEdit(context.Context, string, string, string) (waclient.Sent, error) {
+	return waclient.Sent{}, nil
+}
+func (f *fakeWA) SendRevoke(context.Context, string, string) (waclient.Sent, error) {
 	return waclient.Sent{}, nil
 }
 func (f *fakeWA) OnIncomingMessage(h func(waclient.IncomingMessage)) {
@@ -309,16 +315,17 @@ func (s *kvStore) Delete(_ context.Context, k string) error { delete(s.m, k); re
 
 type sendableFakeWA struct {
 	fakeWA
-	sentArgs   [3]string // chat, text, sender (sender filled by SendText)
+	sentArgs   [3]string // [0]=chatJID, [1]=text, [2]=replyTo
 	sendResp   waclient.Sent
 	sendErr    error
 	calledSend bool
 }
 
-func (f *sendableFakeWA) SendText(_ context.Context, chatJID, text string) (waclient.Sent, error) {
+func (f *sendableFakeWA) SendText(_ context.Context, chatJID, text, replyTo string) (waclient.Sent, error) {
 	f.calledSend = true
 	f.sentArgs[0] = chatJID
 	f.sentArgs[1] = text
+	f.sentArgs[2] = replyTo
 	return f.sendResp, f.sendErr
 }
 
@@ -352,7 +359,7 @@ func TestSendTextSuccess(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	got, err := s.SendText(ctx, "27821234567@s.whatsapp.net", "hello")
+	got, err := s.SendText(ctx, "27821234567@s.whatsapp.net", "hello", "")
 	require.NoError(t, err)
 	assert.Equal(t, "MID1", got.ID)
 	assert.Equal(t, "hello", got.Body)
@@ -381,7 +388,7 @@ func TestSendTextValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.expect, func(t *testing.T) {
-			_, err := s.SendText(ctx, tc.chat, tc.text)
+			_, err := s.SendText(ctx, tc.chat, tc.text, "")
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, service.ErrInvalidRequest))
 			assert.False(t, wa.calledSend, "fake WA must not be called on validation failure")
@@ -394,7 +401,7 @@ func TestSendTextNotConnected(t *testing.T) {
 	bundle, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{sendErr: waclient.ErrNotConnected}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
-	_, err := s.SendText(ctx, "a@s.whatsapp.net", "hi")
+	_, err := s.SendText(ctx, "a@s.whatsapp.net", "hi", "")
 	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
 }
 
@@ -414,7 +421,7 @@ func TestSendTextPersistFailureStillSucceeds(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	got, err := s.SendText(context.Background(), "a@s.whatsapp.net", "hello")
+	got, err := s.SendText(context.Background(), "a@s.whatsapp.net", "hello", "")
 	require.NoError(t, err) // persistence failure is logged, not returned
 	assert.Equal(t, "MID2", got.ID)
 	assert.True(t, failMsgs.called)
@@ -452,7 +459,7 @@ func TestSendTextPreservesUnreadCount(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	_, err := s.SendText(ctx, "chat@s.whatsapp.net", "hi")
+	_, err := s.SendText(ctx, "chat@s.whatsapp.net", "hi", "")
 	require.NoError(t, err)
 
 	// unread_count must be preserved at 5 — sending should not reset it.

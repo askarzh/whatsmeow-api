@@ -34,7 +34,7 @@ func (f *fakeContactsSvc) LoginPhone(context.Context, string) (<-chan waclient.P
 	return nil, nil
 }
 func (f *fakeContactsSvc) Logout(context.Context) error { return nil }
-func (f *fakeContactsSvc) SendText(context.Context, string, string) (store.Message, error) {
+func (f *fakeContactsSvc) SendText(context.Context, string, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
 func (f *fakeContactsSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {

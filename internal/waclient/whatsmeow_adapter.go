@@ -3,6 +3,7 @@ package waclient
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -407,7 +408,9 @@ func (a *Adapter) Close() error {
 }
 
 // SendText sends a plain-text message to chatJID.
-func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, error) {
+// replyTo, if non-empty, is the message ID this is a reply to (Plan 07a Task 2 wires this).
+func (a *Adapter) SendText(ctx context.Context, chatJID, text, replyTo string) (Sent, error) {
+	_ = replyTo // wired in Plan 07a Task 2
 	a.mu.Lock()
 	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
 		a.mu.Unlock()
@@ -530,6 +533,23 @@ func optionalString(s string) *string {
 		return nil
 	}
 	return proto.String(s)
+}
+
+// SendEdit is implemented in Plan 07a Task 3.
+func (a *Adapter) SendEdit(ctx context.Context, chatJID, originalMessageID, newText string) (Sent, error) {
+	_ = ctx
+	_ = chatJID
+	_ = originalMessageID
+	_ = newText
+	return Sent{}, errors.New("waclient: SendEdit not yet implemented")
+}
+
+// SendRevoke is implemented in Plan 07a Task 3.
+func (a *Adapter) SendRevoke(ctx context.Context, chatJID, originalMessageID string) (Sent, error) {
+	_ = ctx
+	_ = chatJID
+	_ = originalMessageID
+	return Sent{}, errors.New("waclient: SendRevoke not yet implemented")
 }
 
 // compile-time interface check

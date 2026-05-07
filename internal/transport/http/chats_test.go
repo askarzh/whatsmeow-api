@@ -42,7 +42,7 @@ func (f *fakeChatsSvc) Status(context.Context) (waclient.Status, error) {
 func (f *fakeChatsSvc) LoginQR(context.Context) (<-chan waclient.QREvent, error)              { return nil, nil }
 func (f *fakeChatsSvc) LoginPhone(context.Context, string) (<-chan waclient.PairEvent, error) { return nil, nil }
 func (f *fakeChatsSvc) Logout(context.Context) error                                          { return nil }
-func (f *fakeChatsSvc) SendText(context.Context, string, string) (store.Message, error) {
+func (f *fakeChatsSvc) SendText(context.Context, string, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
 func (f *fakeChatsSvc) ListChats(_ context.Context, before time.Time, limit int, inclArch bool) ([]store.Chat, error) {

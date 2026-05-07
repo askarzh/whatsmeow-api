@@ -44,7 +44,7 @@ type Service interface {
 	LoginPhone(ctx context.Context, phoneNumber string) (<-chan waclient.PairEvent, error)
 	Logout(ctx context.Context) error
 
-	SendText(ctx context.Context, chatJID, text string) (store.Message, error)
+	SendText(ctx context.Context, chatJID, text, replyTo string) (store.Message, error)
 
 	// Plan 05
 	ListChats(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]store.Chat, error)
@@ -109,7 +109,7 @@ func validateLimit(limit int) error {
 	return nil
 }
 
-func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message, error) {
+func (s *svc) SendText(ctx context.Context, chatJID, text, replyTo string) (store.Message, error) {
 	if strings.TrimSpace(chatJID) == "" {
 		return store.Message{}, fmt.Errorf("%w: chat_jid is required", ErrInvalidRequest)
 	}
@@ -120,7 +120,7 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 		return store.Message{}, fmt.Errorf("%w: text exceeds %d bytes", ErrInvalidRequest, maxTextLen)
 	}
 
-	sent, err := s.wa.SendText(ctx, chatJID, text)
+	sent, err := s.wa.SendText(ctx, chatJID, text, replyTo)
 	if err != nil {
 		return store.Message{}, err
 	}
@@ -132,6 +132,7 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 		Timestamp: sent.Timestamp,
 		Kind:      "text",
 		Body:      text,
+		ReplyTo:   replyTo, // Plan 07a
 	}
 	if err := s.bundle.Messages.Put(ctx, msg); err != nil {
 		s.logger.Warn("persist outbound message failed; whatsmeow echo will heal", "id", sent.ID, "err", err)

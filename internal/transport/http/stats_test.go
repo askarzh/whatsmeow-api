@@ -28,7 +28,7 @@ func (f fakeStatsSvc) LoginPhone(context.Context, string) (<-chan waclient.PairE
 	return nil, nil
 }
 func (f fakeStatsSvc) Logout(context.Context) error                                         { return nil }
-func (f fakeStatsSvc) SendText(context.Context, string, string) (store.Message, error)       { return store.Message{}, nil }
+func (f fakeStatsSvc) SendText(context.Context, string, string, string) (store.Message, error) { return store.Message{}, nil }
 func (f fakeStatsSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) { return nil, nil }
 func (f fakeStatsSvc) GetChat(context.Context, string) (store.Chat, error)                   { return store.Chat{}, nil }
 func (f fakeStatsSvc) ListMessages(context.Context, string, time.Time, int) ([]store.Message, error) {

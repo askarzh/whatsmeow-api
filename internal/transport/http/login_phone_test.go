@@ -30,7 +30,7 @@ func (f *fakeLoginPhoneSvc) LoginPhone(_ context.Context, n string) (<-chan wacl
 	return f.ch, f.err
 }
 func (f *fakeLoginPhoneSvc) Logout(context.Context) error { return nil }
-func (f *fakeLoginPhoneSvc) SendText(context.Context, string, string) (store.Message, error) {
+func (f *fakeLoginPhoneSvc) SendText(context.Context, string, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
 func (f *fakeLoginPhoneSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
