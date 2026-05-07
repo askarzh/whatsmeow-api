@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/store"
@@ -75,6 +76,12 @@ type Service interface {
 	MarkMessageRead(ctx context.Context, messageID string) error
 	SendTyping(ctx context.Context, chatJID, state string) error
 	ListReceipts(ctx context.Context, messageID string) ([]store.Receipt, error)
+
+	// Plan 08
+	CreateGroup(ctx context.Context, name string, participantJIDs []string) (waclient.Group, error)
+	ListGroupMembers(ctx context.Context, groupJID string) ([]waclient.GroupMember, error)
+	UpdateGroupMembers(ctx context.Context, groupJID, action string, participantJIDs []string) ([]waclient.ParticipantChange, error)
+	LeaveGroup(ctx context.Context, groupJID string) error
 }
 
 type svc struct {
@@ -599,4 +606,74 @@ func (s *svc) handleReceipt(r waclient.IncomingReceipt) {
 			s.logger.Warn("persist receipt failed", "id", id, "type", r.Type, "err", err)
 		}
 	}
+}
+
+const maxGroupNameLen = 25
+
+// CreateGroup validates the request, asks whatsmeow to create the group, and
+// upserts a local chats row with kind=group on success.
+func (s *svc) CreateGroup(ctx context.Context, name string, participantJIDs []string) (waclient.Group, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return waclient.Group{}, fmt.Errorf("%w: name is required", ErrInvalidRequest)
+	}
+	if utf8.RuneCountInString(trimmed) > maxGroupNameLen {
+		return waclient.Group{}, fmt.Errorf("%w: name exceeds %d runes", ErrInvalidRequest, maxGroupNameLen)
+	}
+	if len(participantJIDs) == 0 {
+		return waclient.Group{}, fmt.Errorf("%w: at least one participant is required", ErrInvalidRequest)
+	}
+
+	group, err := s.wa.CreateGroup(ctx, trimmed, participantJIDs)
+	if err != nil {
+		return waclient.Group{}, err
+	}
+
+	if err := s.bundle.Chats.Put(ctx, store.Chat{
+		JID:       group.JID,
+		Name:      group.Name,
+		Kind:      "group",
+		LastMsgAt: time.Now(),
+	}); err != nil {
+		s.logger.Warn("upsert chat on group create failed", "jid", group.JID, "err", err)
+	}
+
+	return group, nil
+}
+
+// ListGroupMembers returns the current participant list for a group, fetched
+// live from whatsmeow.
+func (s *svc) ListGroupMembers(ctx context.Context, groupJID string) ([]waclient.GroupMember, error) {
+	if strings.TrimSpace(groupJID) == "" {
+		return nil, fmt.Errorf("%w: group_jid is required", ErrInvalidRequest)
+	}
+	group, err := s.wa.GetGroupInfo(ctx, groupJID)
+	if err != nil {
+		return nil, err
+	}
+	return group.Participants, nil
+}
+
+// UpdateGroupMembers adds or removes participants from a group. The action
+// must be either "add" or "remove" and the participant list must be non-empty.
+func (s *svc) UpdateGroupMembers(ctx context.Context, groupJID, action string, participantJIDs []string) ([]waclient.ParticipantChange, error) {
+	if strings.TrimSpace(groupJID) == "" {
+		return nil, fmt.Errorf("%w: group_jid is required", ErrInvalidRequest)
+	}
+	if action != "add" && action != "remove" {
+		return nil, fmt.Errorf("%w: action must be add or remove", ErrInvalidRequest)
+	}
+	if len(participantJIDs) == 0 {
+		return nil, fmt.Errorf("%w: at least one participant is required", ErrInvalidRequest)
+	}
+	return s.wa.UpdateGroupParticipants(ctx, groupJID, action, participantJIDs)
+}
+
+// LeaveGroup leaves the given group. The local chats row is preserved so the
+// caller's history stays intact.
+func (s *svc) LeaveGroup(ctx context.Context, groupJID string) error {
+	if strings.TrimSpace(groupJID) == "" {
+		return fmt.Errorf("%w: group_jid is required", ErrInvalidRequest)
+	}
+	return s.wa.LeaveGroup(ctx, groupJID)
 }

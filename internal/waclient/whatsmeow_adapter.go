@@ -794,5 +794,151 @@ func (a *Adapter) OnIncomingReceipt(handler func(IncomingReceipt)) {
 	a.mu.Unlock()
 }
 
+// CreateGroup creates a new group with the given name and participants. The
+// daemon's own JID is implicitly added as super-admin.
+func (a *Adapter) CreateGroup(ctx context.Context, name string, participantJIDs []string) (Group, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Group{}, ErrNotConnected
+	}
+	client := a.client
+	a.mu.Unlock()
+
+	parsedJIDs := make([]types.JID, 0, len(participantJIDs))
+	for _, jid := range participantJIDs {
+		p, err := types.ParseJID(jid)
+		if err != nil {
+			return Group{}, fmt.Errorf("parse participant_jid %q: %w", jid, err)
+		}
+		parsedJIDs = append(parsedJIDs, p)
+	}
+
+	req := whatsmeow.ReqCreateGroup{Name: name, Participants: parsedJIDs}
+	info, err := client.CreateGroup(ctx, req)
+	if err != nil {
+		return Group{}, fmt.Errorf("create group: %w", err)
+	}
+	return translateGroup(info), nil
+}
+
+// GetGroupInfo fetches the current group state from whatsmeow.
+func (a *Adapter) GetGroupInfo(ctx context.Context, groupJID string) (Group, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Group{}, ErrNotConnected
+	}
+	client := a.client
+	a.mu.Unlock()
+
+	parsed, err := types.ParseJID(groupJID)
+	if err != nil {
+		return Group{}, fmt.Errorf("parse group_jid: %w", err)
+	}
+	info, err := client.GetGroupInfo(ctx, parsed)
+	if err != nil {
+		return Group{}, fmt.Errorf("get group info: %w", err)
+	}
+	return translateGroup(info), nil
+}
+
+// UpdateGroupParticipants adds or removes members from a group.
+func (a *Adapter) UpdateGroupParticipants(ctx context.Context, groupJID, action string, participantJIDs []string) ([]ParticipantChange, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return nil, ErrNotConnected
+	}
+	client := a.client
+	a.mu.Unlock()
+
+	groupParsed, err := types.ParseJID(groupJID)
+	if err != nil {
+		return nil, fmt.Errorf("parse group_jid: %w", err)
+	}
+
+	var change whatsmeow.ParticipantChange
+	switch action {
+	case "add":
+		change = whatsmeow.ParticipantChangeAdd
+	case "remove":
+		change = whatsmeow.ParticipantChangeRemove
+	default:
+		return nil, fmt.Errorf("unsupported action: %q", action)
+	}
+
+	parsedJIDs := make([]types.JID, 0, len(participantJIDs))
+	for _, jid := range participantJIDs {
+		p, err := types.ParseJID(jid)
+		if err != nil {
+			return nil, fmt.Errorf("parse participant_jid %q: %w", jid, err)
+		}
+		parsedJIDs = append(parsedJIDs, p)
+	}
+
+	results, err := client.UpdateGroupParticipants(ctx, groupParsed, parsedJIDs, change)
+	if err != nil {
+		return nil, fmt.Errorf("update group participants: %w", err)
+	}
+
+	out := make([]ParticipantChange, 0, len(results))
+	for _, r := range results {
+		entry := ParticipantChange{
+			JID: r.JID.String(),
+		}
+		if r.Error == 0 {
+			entry.OK = true
+		} else {
+			entry.OK = false
+			entry.Error = fmt.Sprintf("error code %d", r.Error)
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// LeaveGroup leaves the given group.
+func (a *Adapter) LeaveGroup(ctx context.Context, groupJID string) error {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return ErrNotConnected
+	}
+	client := a.client
+	a.mu.Unlock()
+
+	parsed, err := types.ParseJID(groupJID)
+	if err != nil {
+		return fmt.Errorf("parse group_jid: %w", err)
+	}
+	if err := client.LeaveGroup(ctx, parsed); err != nil {
+		return fmt.Errorf("leave group: %w", err)
+	}
+	return nil
+}
+
+// translateGroup maps whatsmeow's *types.GroupInfo into our domain Group.
+func translateGroup(info *types.GroupInfo) Group {
+	if info == nil {
+		return Group{}
+	}
+	participants := make([]GroupMember, 0, len(info.Participants))
+	for _, p := range info.Participants {
+		participants = append(participants, GroupMember{
+			JID:          p.JID.String(),
+			IsAdmin:      p.IsAdmin,
+			IsSuperAdmin: p.IsSuperAdmin,
+		})
+	}
+	return Group{
+		JID:          info.JID.String(),
+		Name:         info.Name,
+		OwnerJID:     info.OwnerJID.String(),
+		CreatedAt:    info.GroupCreated,
+		Participants: participants,
+	}
+}
+
 // compile-time interface check
 var _ WAClient = (*Adapter)(nil)

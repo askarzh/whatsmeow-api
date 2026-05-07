@@ -58,6 +58,10 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodPost, "/messages/{id}/read", MarkReadHandler(d.Service))
 			r.Method(http.MethodGet, "/messages/{id}/receipts", ListReceiptsHandler(d.Service))
 			r.Method(http.MethodPost, "/chats/{jid}/typing", SendTypingHandler(d.Service))
+			r.Method(http.MethodPost, "/groups", CreateGroupHandler(d.Service))
+			r.Method(http.MethodGet, "/groups/{jid}/members", ListGroupMembersHandler(d.Service))
+			r.Method(http.MethodPost, "/groups/{jid}/members", UpdateGroupMembersHandler(d.Service))
+			r.Method(http.MethodDelete, "/groups/{jid}/membership", LeaveGroupHandler(d.Service))
 		})
 	})
 

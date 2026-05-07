@@ -100,9 +100,19 @@ func (f *fakeSendSvc) SendReaction(context.Context, string, string) error {
 func (f *fakeSendSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
-func (f *fakeSendSvc) MarkMessageRead(context.Context, string) error               { return nil }
-func (f *fakeSendSvc) SendTyping(context.Context, string, string) error            { return nil }
+func (f *fakeSendSvc) MarkMessageRead(context.Context, string) error                 { return nil }
+func (f *fakeSendSvc) SendTyping(context.Context, string, string) error              { return nil }
 func (f *fakeSendSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f *fakeSendSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
+func (f *fakeSendSvc) ListGroupMembers(context.Context, string) ([]waclient.GroupMember, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) UpdateGroupMembers(context.Context, string, string, []string) ([]waclient.ParticipantChange, error) {
+	return nil, nil
+}
+func (f *fakeSendSvc) LeaveGroup(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeSendSvc)(nil)
 
@@ -269,7 +279,7 @@ func TestEditMessageHappyPath(t *testing.T) {
 	f := &fakeSendSvc{editResp: store.Message{
 		ID: "MID1", ChatJID: "c@s.whatsapp.net",
 		Timestamp: time.Unix(1000, 0).UTC(),
-		Kind: "text", Body: "new", EditedAt: &editedAt,
+		Kind:      "text", Body: "new", EditedAt: &editedAt,
 	}}
 	r := chi.NewRouter()
 	r.Patch("/v1/messages/{id}", httpapi.EditMessageHandler(f).ServeHTTP)
