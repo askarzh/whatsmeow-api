@@ -30,7 +30,7 @@ func (f *fakeLoginPhoneSvc) LoginPhone(_ context.Context, n string) (<-chan wacl
 	return f.ch, f.err
 }
 func (f *fakeLoginPhoneSvc) Logout(context.Context) error { return nil }
-func (f *fakeLoginPhoneSvc) SendText(context.Context, string, string) (store.Message, error) {
+func (f *fakeLoginPhoneSvc) SendText(context.Context, string, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
 func (f *fakeLoginPhoneSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
@@ -59,6 +59,10 @@ func (f *fakeLoginPhoneSvc) SendMedia(context.Context, service.SendMediaRequest)
 func (f *fakeLoginPhoneSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
 	return store.MediaRef{}, nil
 }
+func (f *fakeLoginPhoneSvc) EditMessage(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f *fakeLoginPhoneSvc) DeleteMessage(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeLoginPhoneSvc)(nil)
 

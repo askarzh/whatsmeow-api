@@ -19,6 +19,10 @@ import (
 // ErrInvalidRequest is returned when the caller provides invalid input.
 var ErrInvalidRequest = errors.New("service: invalid request")
 
+// ErrForbidden is returned when the caller is not permitted to perform the
+// requested operation (e.g. editing a message they did not send).
+var ErrForbidden = errors.New("service: forbidden")
+
 // Stats holds aggregate counts for the local store.
 type Stats struct {
 	Chats       int `json:"chats"`
@@ -44,7 +48,7 @@ type Service interface {
 	LoginPhone(ctx context.Context, phoneNumber string) (<-chan waclient.PairEvent, error)
 	Logout(ctx context.Context) error
 
-	SendText(ctx context.Context, chatJID, text string) (store.Message, error)
+	SendText(ctx context.Context, chatJID, text, replyTo string) (store.Message, error)
 
 	// Plan 05
 	ListChats(ctx context.Context, beforeMsgAt time.Time, limit int, includeArchived bool) ([]store.Chat, error)
@@ -58,6 +62,10 @@ type Service interface {
 	// Plan 06
 	SendMedia(ctx context.Context, req SendMediaRequest) (store.Message, error)
 	GetMediaRef(ctx context.Context, messageID string) (store.MediaRef, error)
+
+	// Plan 07a
+	EditMessage(ctx context.Context, messageID, newText string) (store.Message, error)
+	DeleteMessage(ctx context.Context, messageID string) error
 }
 
 type svc struct {
@@ -109,7 +117,7 @@ func validateLimit(limit int) error {
 	return nil
 }
 
-func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message, error) {
+func (s *svc) SendText(ctx context.Context, chatJID, text, replyTo string) (store.Message, error) {
 	if strings.TrimSpace(chatJID) == "" {
 		return store.Message{}, fmt.Errorf("%w: chat_jid is required", ErrInvalidRequest)
 	}
@@ -120,7 +128,7 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 		return store.Message{}, fmt.Errorf("%w: text exceeds %d bytes", ErrInvalidRequest, maxTextLen)
 	}
 
-	sent, err := s.wa.SendText(ctx, chatJID, text)
+	sent, err := s.wa.SendText(ctx, chatJID, text, replyTo)
 	if err != nil {
 		return store.Message{}, err
 	}
@@ -132,6 +140,7 @@ func (s *svc) SendText(ctx context.Context, chatJID, text string) (store.Message
 		Timestamp: sent.Timestamp,
 		Kind:      "text",
 		Body:      text,
+		ReplyTo:   replyTo, // Plan 07a
 	}
 	if err := s.bundle.Messages.Put(ctx, msg); err != nil {
 		s.logger.Warn("persist outbound message failed; whatsmeow echo will heal", "id", sent.ID, "err", err)
@@ -225,6 +234,28 @@ func (s *svc) Stats(ctx context.Context) (Stats, error) {
 
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	ctx := context.Background()
+
+	// Plan 07a: route edits and revokes BEFORE the normal-message path.
+	if msg.RevokeOfID != "" {
+		if err := s.bundle.Messages.SoftDelete(ctx, msg.RevokeOfID, msg.Timestamp); err != nil {
+			s.logger.Warn("soft-delete on incoming revoke failed", "id", msg.RevokeOfID, "err", err)
+		}
+		return
+	}
+	if msg.EditOfID != "" {
+		existing, err := s.bundle.Messages.Get(ctx, msg.EditOfID)
+		if err != nil {
+			s.logger.Warn("incoming edit references unknown message", "id", msg.EditOfID, "err", err)
+			return
+		}
+		existing.Body = msg.Body
+		t := msg.Timestamp
+		existing.EditedAt = &t
+		if err := s.bundle.Messages.Put(ctx, existing); err != nil {
+			s.logger.Warn("persist incoming edit failed", "id", msg.EditOfID, "err", err)
+		}
+		return
+	}
 
 	if msg.PushName != "" {
 		if err := s.bundle.Contacts.Put(ctx, store.Contact{
@@ -371,4 +402,76 @@ func (s *svc) GetMediaRef(ctx context.Context, messageID string) (store.MediaRef
 		return store.MediaRef{}, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
 	}
 	return s.bundle.Media.GetByMessageID(ctx, messageID)
+}
+
+func (s *svc) EditMessage(ctx context.Context, messageID, newText string) (store.Message, error) {
+	if strings.TrimSpace(messageID) == "" {
+		return store.Message{}, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+	if newText == "" {
+		return store.Message{}, fmt.Errorf("%w: text is required", ErrInvalidRequest)
+	}
+	if len(newText) > maxTextLen {
+		return store.Message{}, fmt.Errorf("%w: text exceeds %d bytes", ErrInvalidRequest, maxTextLen)
+	}
+
+	existing, err := s.bundle.Messages.Get(ctx, messageID)
+	if err != nil {
+		return store.Message{}, err
+	}
+	if !s.ownsMessage(existing) {
+		return store.Message{}, fmt.Errorf("%w: not the message sender", ErrForbidden)
+	}
+	if existing.DeletedAt != nil {
+		return store.Message{}, fmt.Errorf("%w: message is deleted", ErrForbidden)
+	}
+
+	sent, err := s.wa.SendEdit(ctx, existing.ChatJID, messageID, newText)
+	if err != nil {
+		return store.Message{}, err
+	}
+
+	existing.Body = newText
+	t := sent.Timestamp
+	existing.EditedAt = &t
+	if err := s.bundle.Messages.Put(ctx, existing); err != nil {
+		s.logger.Warn("persist edit failed", "id", messageID, "err", err)
+	}
+	return existing, nil
+}
+
+func (s *svc) DeleteMessage(ctx context.Context, messageID string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+
+	existing, err := s.bundle.Messages.Get(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	if !s.ownsMessage(existing) {
+		return fmt.Errorf("%w: not the message sender", ErrForbidden)
+	}
+	if existing.DeletedAt != nil {
+		return fmt.Errorf("%w: already deleted", ErrForbidden)
+	}
+
+	if _, err := s.wa.SendRevoke(ctx, existing.ChatJID, messageID); err != nil {
+		return err
+	}
+
+	if err := s.bundle.Messages.SoftDelete(ctx, messageID, time.Now()); err != nil {
+		s.logger.Warn("soft-delete after revoke failed", "id", messageID, "err", err)
+	}
+	return nil
+}
+
+// ownsMessage reports whether the daemon's current JID matches the message's
+// sender JID. Returns false if the daemon isn't currently logged in.
+func (s *svc) ownsMessage(m store.Message) bool {
+	st := s.wa.Status()
+	if st.JID == nil {
+		return false
+	}
+	return *st.JID == m.SenderJID
 }

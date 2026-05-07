@@ -4,14 +4,19 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
 
 type sendTextRequest struct {
 	ChatJID string `json:"chat_jid"`
 	Text    string `json:"text"`
+	ReplyTo string `json:"reply_to,omitempty"`
 }
 
 const maxTextLen = 4096
@@ -37,7 +42,7 @@ func SendTextHandler(svc service.Service) http.Handler {
 			return
 		}
 
-		msg, err := svc.SendText(r.Context(), req.ChatJID, req.Text)
+		msg, err := svc.SendText(r.Context(), req.ChatJID, req.Text, req.ReplyTo)
 		if err != nil {
 			switch {
 			case errors.Is(err, service.ErrInvalidRequest):
@@ -57,6 +62,77 @@ func SendTextHandler(svc service.Service) http.Handler {
 			"chat_jid": msg.ChatJID,
 			"ts":       msg.Timestamp.UTC().Format("2006-01-02T15:04:05.999999999Z07:00"),
 		})
+	})
+}
+
+type editMessageRequest struct {
+	Text string `json:"text"`
+}
+
+// EditMessageHandler handles PATCH /v1/messages/{id}: edit an outbound text
+// message. Body: {"text": "..."}.
+func EditMessageHandler(svc service.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		messageID := chi.URLParam(r, "id")
+		var req editMessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			WriteProblem(w, http.StatusBadRequest, "request.invalid", "malformed JSON body")
+			return
+		}
+		if req.Text == "" {
+			WriteProblem(w, http.StatusBadRequest, "request.invalid", "text is required")
+			return
+		}
+
+		msg, err := svc.EditMessage(r.Context(), messageID, req.Text)
+		if err != nil {
+			switch {
+			case errors.Is(err, service.ErrInvalidRequest):
+				WriteProblem(w, http.StatusBadRequest, "request.invalid", err.Error())
+			case errors.Is(err, service.ErrForbidden):
+				WriteProblem(w, http.StatusForbidden, "message.forbidden", err.Error())
+			case errors.Is(err, store.ErrNotFound):
+				WriteProblem(w, http.StatusNotFound, "message.not_found", err.Error())
+			case errors.Is(err, waclient.ErrNotConnected):
+				WriteProblem(w, http.StatusConflict, "wa.not_connected", err.Error())
+			default:
+				WriteProblem(w, http.StatusInternalServerError, "wa.send_failed", err.Error())
+			}
+			return
+		}
+
+		body := map[string]any{
+			"id":       msg.ID,
+			"chat_jid": msg.ChatJID,
+			"ts":       msg.Timestamp.UTC().Format(time.RFC3339),
+		}
+		if msg.EditedAt != nil {
+			body["edited_at"] = msg.EditedAt.UTC().Format(time.RFC3339)
+		}
+		writeJSON(w, http.StatusOK, body)
+	})
+}
+
+// DeleteMessageHandler handles DELETE /v1/messages/{id}: revoke an outbound
+// message and soft-delete the local row.
+func DeleteMessageHandler(svc service.Service) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		messageID := chi.URLParam(r, "id")
+		err := svc.DeleteMessage(r.Context(), messageID)
+		switch {
+		case err == nil:
+			w.WriteHeader(http.StatusNoContent)
+		case errors.Is(err, service.ErrInvalidRequest):
+			WriteProblem(w, http.StatusBadRequest, "request.invalid", err.Error())
+		case errors.Is(err, service.ErrForbidden):
+			WriteProblem(w, http.StatusForbidden, "message.forbidden", err.Error())
+		case errors.Is(err, store.ErrNotFound):
+			WriteProblem(w, http.StatusNotFound, "message.not_found", err.Error())
+		case errors.Is(err, waclient.ErrNotConnected):
+			WriteProblem(w, http.StatusConflict, "wa.not_connected", err.Error())
+		default:
+			WriteProblem(w, http.StatusInternalServerError, "wa.send_failed", err.Error())
+		}
 	})
 }
 

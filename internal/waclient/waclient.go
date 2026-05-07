@@ -58,6 +58,11 @@ type IncomingMessage struct {
 	// nil for non-media kinds. Adapter populates with a closure capturing the
 	// proto submessage; service calls it from a goroutine.
 	MediaDownloader func(ctx context.Context) ([]byte, string /* mime */, error)
+
+	// Plan 07a — set when this event is an edit or revoke of a previous message.
+	// Mutually exclusive (ProtocolMessage is one variant or the other).
+	EditOfID   string
+	RevokeOfID string
 }
 
 // WAClient is the abstraction over whatsmeow used by the rest of the daemon.
@@ -69,12 +74,16 @@ type WAClient interface {
 	Logout(ctx context.Context) error
 	Close() error
 
-	// Plan 04 additions
-	SendText(ctx context.Context, chatJID, text string) (Sent, error)
+	// Plan 04 additions. CHANGED in Plan 07a: replyTo parameter added (empty string = not a reply).
+	SendText(ctx context.Context, chatJID, text, replyTo string) (Sent, error)
 	OnIncomingMessage(handler func(IncomingMessage))
 
 	// Plan 06
 	SendMedia(ctx context.Context, chatJID, kind, caption, filename, mime string, body []byte) (Sent, error)
+
+	// Plan 07a
+	SendEdit(ctx context.Context, chatJID, originalMessageID, newText string) (Sent, error)
+	SendRevoke(ctx context.Context, chatJID, originalMessageID string) (Sent, error)
 }
 
 // Sentinel errors so callers can distinguish failure modes without parsing strings.

@@ -138,6 +138,9 @@ func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) 
 	if evt.Info.IsFromMe {
 		return IncomingMessage{}, false
 	}
+	if evt.Message != nil && evt.Message.ProtocolMessage != nil {
+		return translateProtocol(evt)
+	}
 	kind, body, downloader, ok := messageKindAndBody(a, evt.Message)
 	if !ok {
 		return IncomingMessage{}, false
@@ -153,6 +156,40 @@ func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) 
 		PushName:        evt.Info.PushName,
 		MediaDownloader: downloader,
 	}, true
+}
+
+// translateProtocol handles inbound *waE2E.ProtocolMessage events for revoke +
+// edit. Returns false for protocol-message types we don't handle in Plan 07a
+// (e.g. read receipts arrive separately).
+func translateProtocol(evt *events.Message) (IncomingMessage, bool) {
+	pm := evt.Message.ProtocolMessage
+	switch pm.GetType() {
+	case waE2E.ProtocolMessage_REVOKE:
+		return IncomingMessage{
+			ID:         evt.Info.ID,
+			ChatJID:    evt.Info.Chat.String(),
+			ChatKind:   ChatKindFromJID(evt.Info.Chat.String()),
+			SenderJID:  evt.Info.Sender.String(),
+			Timestamp:  evt.Info.Timestamp,
+			RevokeOfID: pm.GetKey().GetID(),
+		}, true
+	case waE2E.ProtocolMessage_MESSAGE_EDIT:
+		body := ""
+		if edited := pm.GetEditedMessage(); edited != nil {
+			body = edited.GetConversation()
+		}
+		return IncomingMessage{
+			ID:        evt.Info.ID,
+			ChatJID:   evt.Info.Chat.String(),
+			ChatKind:  ChatKindFromJID(evt.Info.Chat.String()),
+			SenderJID: evt.Info.Sender.String(),
+			Timestamp: evt.Info.Timestamp,
+			Body:      body,
+			EditOfID:  pm.GetKey().GetID(),
+		}, true
+	default:
+		return IncomingMessage{}, false
+	}
 }
 
 // messageKindAndBody picks the relevant field out of a *waE2E.Message and
@@ -407,7 +444,8 @@ func (a *Adapter) Close() error {
 }
 
 // SendText sends a plain-text message to chatJID.
-func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, error) {
+// replyTo, if non-empty, is the message ID this is a reply to.
+func (a *Adapter) SendText(ctx context.Context, chatJID, text, replyTo string) (Sent, error) {
 	a.mu.Lock()
 	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
 		a.mu.Unlock()
@@ -421,12 +459,24 @@ func (a *Adapter) SendText(ctx context.Context, chatJID, text string) (Sent, err
 	if err != nil {
 		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
 	}
-	msg := &waE2E.Message{
-		Conversation: proto.String(text),
+
+	var msg *waE2E.Message
+	if replyTo == "" {
+		msg = &waE2E.Message{Conversation: proto.String(text)}
+	} else {
+		msg = &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: proto.String(text),
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID: proto.String(replyTo),
+				},
+			},
+		}
 	}
+
 	resp, err := client.SendMessage(ctx, to, msg)
 	if err != nil {
-		return Sent{}, fmt.Errorf("send message: %w", err)
+		return Sent{}, fmt.Errorf("send text: %w", err)
 	}
 	return Sent{
 		ID:        resp.ID,
@@ -530,6 +580,69 @@ func optionalString(s string) *string {
 		return nil
 	}
 	return proto.String(s)
+}
+
+// SendEdit sends a MESSAGE_EDIT ProtocolMessage targeting the given message id.
+// Only owner-edits succeed (whatsmeow rejects edits to messages we didn't send).
+func (a *Adapter) SendEdit(ctx context.Context, chatJID, originalMessageID, newText string) (Sent, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	msg := client.BuildEdit(to, originalMessageID, &waE2E.Message{
+		Conversation: proto.String(newText),
+	})
+
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send edit: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
+}
+
+// SendRevoke sends a REVOKE ProtocolMessage targeting the given message id.
+// Passing types.EmptyJID as the sender revokes one of our own messages.
+func (a *Adapter) SendRevoke(ctx context.Context, chatJID, originalMessageID string) (Sent, error) {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	// types.EmptyJID signals "my own message" to BuildRevoke.
+	msg := client.BuildRevoke(to, types.EmptyJID, originalMessageID)
+
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send revoke: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
 }
 
 // compile-time interface check

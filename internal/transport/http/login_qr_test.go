@@ -28,7 +28,7 @@ func (f fakeLoginQRSvc) LoginPhone(context.Context, string) (<-chan waclient.Pai
 	return nil, nil
 }
 func (f fakeLoginQRSvc) Logout(context.Context) error { return nil }
-func (f fakeLoginQRSvc) SendText(context.Context, string, string) (store.Message, error) {
+func (f fakeLoginQRSvc) SendText(context.Context, string, string, string) (store.Message, error) {
 	return store.Message{}, nil
 }
 func (f fakeLoginQRSvc) ListChats(context.Context, time.Time, int, bool) ([]store.Chat, error) {
@@ -57,6 +57,10 @@ func (f fakeLoginQRSvc) SendMedia(context.Context, service.SendMediaRequest) (st
 func (f fakeLoginQRSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
 	return store.MediaRef{}, nil
 }
+func (f fakeLoginQRSvc) EditMessage(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeLoginQRSvc) DeleteMessage(context.Context, string) error { return nil }
 
 var _ service.Service = fakeLoginQRSvc{}
 

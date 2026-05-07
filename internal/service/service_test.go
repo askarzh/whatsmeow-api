@@ -42,7 +42,13 @@ func (f *fakeWA) LoginPhone(_ context.Context, n string) (<-chan waclient.PairEv
 }
 func (f *fakeWA) Logout(context.Context) error { return f.logoutErr }
 func (f *fakeWA) Close() error                 { f.closed = true; return nil }
-func (f *fakeWA) SendText(context.Context, string, string) (waclient.Sent, error) {
+func (f *fakeWA) SendText(context.Context, string, string, string) (waclient.Sent, error) {
+	return waclient.Sent{}, nil
+}
+func (f *fakeWA) SendEdit(context.Context, string, string, string) (waclient.Sent, error) {
+	return waclient.Sent{}, nil
+}
+func (f *fakeWA) SendRevoke(context.Context, string, string) (waclient.Sent, error) {
 	return waclient.Sent{}, nil
 }
 func (f *fakeWA) OnIncomingMessage(h func(waclient.IncomingMessage)) {
@@ -217,7 +223,15 @@ func (s *messageStore) Search(_ context.Context, query string, limit int) ([]sto
 	}
 	return out, nil
 }
-func (s *messageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+func (s *messageStore) SoftDelete(_ context.Context, id string, at time.Time) error {
+	msg, ok := s.m[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	msg.DeletedAt = &at
+	s.m[id] = msg
+	return nil
+}
 func (s *messageStore) Count(context.Context) (int, error) {
 	n := 0
 	for _, m := range s.m {
@@ -309,16 +323,17 @@ func (s *kvStore) Delete(_ context.Context, k string) error { delete(s.m, k); re
 
 type sendableFakeWA struct {
 	fakeWA
-	sentArgs   [3]string // chat, text, sender (sender filled by SendText)
+	sentArgs   [3]string // [0]=chatJID, [1]=text, [2]=replyTo
 	sendResp   waclient.Sent
 	sendErr    error
 	calledSend bool
 }
 
-func (f *sendableFakeWA) SendText(_ context.Context, chatJID, text string) (waclient.Sent, error) {
+func (f *sendableFakeWA) SendText(_ context.Context, chatJID, text, replyTo string) (waclient.Sent, error) {
 	f.calledSend = true
 	f.sentArgs[0] = chatJID
 	f.sentArgs[1] = text
+	f.sentArgs[2] = replyTo
 	return f.sendResp, f.sendErr
 }
 
@@ -352,7 +367,7 @@ func TestSendTextSuccess(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	got, err := s.SendText(ctx, "27821234567@s.whatsapp.net", "hello")
+	got, err := s.SendText(ctx, "27821234567@s.whatsapp.net", "hello", "")
 	require.NoError(t, err)
 	assert.Equal(t, "MID1", got.ID)
 	assert.Equal(t, "hello", got.Body)
@@ -381,7 +396,7 @@ func TestSendTextValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.expect, func(t *testing.T) {
-			_, err := s.SendText(ctx, tc.chat, tc.text)
+			_, err := s.SendText(ctx, tc.chat, tc.text, "")
 			require.Error(t, err)
 			assert.True(t, errors.Is(err, service.ErrInvalidRequest))
 			assert.False(t, wa.calledSend, "fake WA must not be called on validation failure")
@@ -394,7 +409,7 @@ func TestSendTextNotConnected(t *testing.T) {
 	bundle, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{sendErr: waclient.ErrNotConnected}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
-	_, err := s.SendText(ctx, "a@s.whatsapp.net", "hi")
+	_, err := s.SendText(ctx, "a@s.whatsapp.net", "hi", "")
 	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
 }
 
@@ -414,7 +429,7 @@ func TestSendTextPersistFailureStillSucceeds(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	got, err := s.SendText(context.Background(), "a@s.whatsapp.net", "hello")
+	got, err := s.SendText(context.Background(), "a@s.whatsapp.net", "hello", "")
 	require.NoError(t, err) // persistence failure is logged, not returned
 	assert.Equal(t, "MID2", got.ID)
 	assert.True(t, failMsgs.called)
@@ -452,7 +467,7 @@ func TestSendTextPreservesUnreadCount(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	_, err := s.SendText(ctx, "chat@s.whatsapp.net", "hi")
+	_, err := s.SendText(ctx, "chat@s.whatsapp.net", "hi", "")
 	require.NoError(t, err)
 
 	// unread_count must be preserved at 5 — sending should not reset it.
@@ -857,6 +872,151 @@ func TestHandleIncomingDownloadsMedia(t *testing.T) {
 	assert.NotEmpty(t, got.Path)
 }
 
+type editFakeWA struct {
+	fakeWA
+	editResp           waclient.Sent
+	editErr            error
+	gotEditChatJID     string
+	gotEditMessageID   string
+	gotEditNewText     string
+	revokeResp         waclient.Sent
+	revokeErr          error
+	gotRevokeChatJID   string
+	gotRevokeMessageID string
+}
+
+func (f *editFakeWA) SendEdit(_ context.Context, chatJID, messageID, newText string) (waclient.Sent, error) {
+	f.gotEditChatJID = chatJID
+	f.gotEditMessageID = messageID
+	f.gotEditNewText = newText
+	return f.editResp, f.editErr
+}
+func (f *editFakeWA) SendRevoke(_ context.Context, chatJID, messageID string) (waclient.Sent, error) {
+	f.gotRevokeChatJID = chatJID
+	f.gotRevokeMessageID = messageID
+	return f.revokeResp, f.revokeErr
+}
+
+func TestEditMessageHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	myJID := jid
+	wa := &editFakeWA{
+		fakeWA:   fakeWA{status: waclient.Status{Connected: true, JID: &myJID}},
+		editResp: waclient.Sent{ID: "EDIT1", Timestamp: time.Unix(2000, 0).UTC(), SenderJID: jid},
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: jid,
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "old",
+	}
+
+	got, err := s.EditMessage(ctx, "M1", "new text")
+	require.NoError(t, err)
+	assert.Equal(t, "new text", got.Body)
+	require.NotNil(t, got.EditedAt)
+	assert.True(t, got.EditedAt.Equal(time.Unix(2000, 0).UTC()))
+
+	assert.Equal(t, "M1", wa.gotEditMessageID)
+	assert.Equal(t, "new text", wa.gotEditNewText)
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotEditChatJID)
+}
+
+func TestEditMessageNotFound(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	myJID := "me@s.whatsapp.net"
+	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	_, err := s.EditMessage(context.Background(), "missing", "x")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestEditMessageForbiddenWrongSender(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	myJID := "me@s.whatsapp.net"
+	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "someone-else@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+	_, err := s.EditMessage(context.Background(), "M1", "new")
+	assert.True(t, errors.Is(err, service.ErrForbidden))
+}
+
+func TestEditMessageForbiddenAlreadyDeleted(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	myJID := "me@s.whatsapp.net"
+	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	deletedAt := time.Unix(1500, 0).UTC()
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: myJID,
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+		DeletedAt: &deletedAt,
+	}
+	_, err := s.EditMessage(context.Background(), "M1", "new")
+	assert.True(t, errors.Is(err, service.ErrForbidden))
+}
+
+func TestEditMessageValidation(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	myJID := "me@s.whatsapp.net"
+	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	_, err := s.EditMessage(context.Background(), "", "text")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	_, err = s.EditMessage(context.Background(), "M1", "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+
+	_, err = s.EditMessage(context.Background(), "M1", strings.Repeat("x", 4097))
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestDeleteMessageHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &editFakeWA{
+		fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: jid,
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+
+	require.NoError(t, s.DeleteMessage(ctx, "M1"))
+	assert.Equal(t, "M1", wa.gotRevokeMessageID)
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotRevokeChatJID)
+}
+
+func TestDeleteMessageNotFound(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	myJID := "me@s.whatsapp.net"
+	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.DeleteMessage(context.Background(), "missing")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestDeleteMessageForbidden(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	myJID := "me@s.whatsapp.net"
+	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+	err := s.DeleteMessage(context.Background(), "M1")
+	assert.True(t, errors.Is(err, service.ErrForbidden))
+}
+
 func TestHandleIncomingDownloadFailureLogged(t *testing.T) {
 	bundle, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
@@ -887,4 +1047,106 @@ func TestHandleIncomingDownloadFailureLogged(t *testing.T) {
 
 	_, err := bundle.Media.GetByMessageID(context.Background(), "MIN2")
 	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestHandleIncomingRevoke(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	// Seed the message that gets revoked.
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "secret",
+	}
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:         "EVT1",
+		ChatJID:    "c@s.whatsapp.net",
+		ChatKind:   "user",
+		SenderJID:  "other@s.whatsapp.net",
+		Timestamp:  time.Unix(2000, 0).UTC(),
+		RevokeOfID: "M1",
+	})
+
+	got, err := bundle.Messages.Get(context.Background(), "M1")
+	require.NoError(t, err)
+	require.NotNil(t, got.DeletedAt)
+}
+
+func TestHandleIncomingEditUpdatesBody(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "original",
+	}
+
+	editTS := time.Unix(2000, 0).UTC()
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "EVT2",
+		ChatJID:   "c@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "other@s.whatsapp.net",
+		Timestamp: editTS,
+		Body:      "edited body",
+		EditOfID:  "M1",
+	})
+
+	got, err := bundle.Messages.Get(context.Background(), "M1")
+	require.NoError(t, err)
+	assert.Equal(t, "edited body", got.Body)
+	require.NotNil(t, got.EditedAt)
+	assert.True(t, got.EditedAt.Equal(editTS))
+}
+
+func TestHandleIncomingEditUnknownIDLogged(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	// No seeded message; the edit references a non-existent ID.
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "EVT3",
+		ChatJID:   "c@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(),
+		Body:      "edited body",
+		EditOfID:  "NON_EXISTENT",
+	})
+
+	// No row should be created.
+	_, err := bundle.Messages.Get(context.Background(), "NON_EXISTENT")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestHandleIncomingRevokeDoesNotBumpUnread(t *testing.T) {
+	bundle, chats, msgs, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 5,
+	}
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+
+	wa.incoming(waclient.IncomingMessage{
+		ID: "EVT", ChatJID: "c@s.whatsapp.net", ChatKind: "user",
+		SenderJID: "other@s.whatsapp.net", Timestamp: time.Unix(2000, 0).UTC(),
+		RevokeOfID: "M1",
+	})
+
+	chat, err := bundle.Chats.Get(context.Background(), "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 5, chat.UnreadCount, "revoke must not bump unread_count")
 }

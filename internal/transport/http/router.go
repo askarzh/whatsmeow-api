@@ -42,6 +42,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodPost, "/login/phone", LoginPhoneHandler(d.Service))
 			r.Method(http.MethodPost, "/logout", LogoutHandler(d.Service))
 			r.Method(http.MethodPost, "/messages", SendTextHandler(d.Service))
+			r.Method(http.MethodPatch, "/messages/{id}", EditMessageHandler(d.Service))
+			r.Method(http.MethodDelete, "/messages/{id}", DeleteMessageHandler(d.Service))
 			r.Method(http.MethodGet, "/chats", ListChatsHandler(d.Service))
 			r.Method(http.MethodGet, "/chats/{jid}", GetChatHandler(d.Service))
 			r.Method(http.MethodGet, "/chats/{jid}/messages", ListMessagesByChatHandler(d.Service))
