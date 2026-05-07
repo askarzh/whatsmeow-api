@@ -121,6 +121,22 @@ type ReactionStore interface {
 	ListByMessageID(ctx context.Context, messageID string) ([]Reaction, error)
 }
 
+// Receipt is one inbound acknowledgement of one of our outbound messages.
+// PK is (MessageID, ReaderJID, Type) — same reader can have separate
+// "delivered" → "read" → "played" rows.
+type Receipt struct {
+	MessageID string
+	ReaderJID string
+	Type      string // "delivered" | "read" | "played"
+	Timestamp time.Time
+}
+
+// ReceiptStore manages the receipts table.
+type ReceiptStore interface {
+	Put(ctx context.Context, r Receipt) error
+	ListByMessageID(ctx context.Context, messageID string) ([]Receipt, error)
+}
+
 // Bundle aggregates the per-domain interfaces. Constructed by the SQLite store
 // (or, in Plan 10, the Postgres store) and passed into HTTP handlers via Deps.
 type Bundle struct {
@@ -131,6 +147,7 @@ type Bundle struct {
 	Events    EventsLog
 	KV        KV
 	Reactions ReactionStore // Plan 07b
+	Receipts  ReceiptStore  // Plan 07c
 }
 
 // ErrNotFound is returned by Get* methods when the key is absent.
