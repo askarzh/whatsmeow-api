@@ -25,12 +25,13 @@ import (
 type Store struct {
 	db *sql.DB
 
-	chats    *ChatStore
-	messages *MessageStore
-	contacts *ContactStore
-	media    *MediaStore
-	events   *EventsLog
-	kv       *KVStore
+	chats     *ChatStore
+	messages  *MessageStore
+	contacts  *ContactStore
+	media     *MediaStore
+	events    *EventsLog
+	kv        *KVStore
+	reactions *ReactionStore // Plan 07b
 }
 
 // New opens (or creates) the SQLite database at path, runs all pending
@@ -58,6 +59,7 @@ func New(ctx context.Context, path string) (*Store, error) {
 	s.media = &MediaStore{db: db}
 	s.events = &EventsLog{db: db}
 	s.kv = &KVStore{db: db}
+	s.reactions = &ReactionStore{db: db}
 	return s, nil
 }
 
@@ -69,12 +71,13 @@ func (s *Store) Close() error {
 // Bundle returns the store interfaces for use by HTTP handlers.
 func (s *Store) Bundle() store.Bundle {
 	return store.Bundle{
-		Chats:    s.chats,
-		Messages: s.messages,
-		Contacts: s.contacts,
-		Media:    s.media,
-		Events:   s.events,
-		KV:       s.kv,
+		Chats:     s.chats,
+		Messages:  s.messages,
+		Contacts:  s.contacts,
+		Media:     s.media,
+		Events:    s.events,
+		KV:        s.kv,
+		Reactions: s.reactions, // Plan 07b
 	}
 }
 
