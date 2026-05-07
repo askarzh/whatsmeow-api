@@ -239,6 +239,25 @@ func (s *svc) Stats(ctx context.Context) (Stats, error) {
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	ctx := context.Background()
 
+	// Plan 07b: route reactions BEFORE revoke/edit/normal paths.
+	if msg.ReactionTargetID != "" {
+		if msg.ReactionEmoji == "" {
+			if err := s.bundle.Reactions.Delete(ctx, msg.ReactionTargetID, msg.SenderJID); err != nil {
+				s.logger.Warn("clear reaction on incoming failed", "target", msg.ReactionTargetID, "err", err)
+			}
+		} else {
+			if err := s.bundle.Reactions.Put(ctx, store.Reaction{
+				MessageID: msg.ReactionTargetID,
+				SenderJID: msg.SenderJID,
+				Emoji:     msg.ReactionEmoji,
+				Timestamp: msg.Timestamp,
+			}); err != nil {
+				s.logger.Warn("persist reaction on incoming failed", "target", msg.ReactionTargetID, "err", err)
+			}
+		}
+		return
+	}
+
 	// Plan 07a: route edits and revokes BEFORE the normal-message path.
 	if msg.RevokeOfID != "" {
 		if err := s.bundle.Messages.SoftDelete(ctx, msg.RevokeOfID, msg.Timestamp); err != nil {

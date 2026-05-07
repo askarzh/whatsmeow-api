@@ -1318,3 +1318,71 @@ func TestListReactionsValidation(t *testing.T) {
 	_, err := s.ListReactions(context.Background(), "")
 	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
 }
+
+func TestHandleIncomingReactionPut(t *testing.T) {
+	bundle, _, _, _, _ := newInMemoryBundle()
+	wa := &reactionFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:               "EVT1",
+		ChatJID:          "c@s.whatsapp.net",
+		ChatKind:         "user",
+		SenderJID:        "alice@s.whatsapp.net",
+		Timestamp:        time.Unix(1000, 0).UTC(),
+		ReactionTargetID: "M1",
+		ReactionEmoji:    "👍",
+	})
+
+	got, err := bundle.Reactions.ListByMessageID(context.Background(), "M1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "alice@s.whatsapp.net", got[0].SenderJID)
+	assert.Equal(t, "👍", got[0].Emoji)
+}
+
+func TestHandleIncomingReactionClear(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _, _ := newInMemoryBundle()
+	wa := &reactionFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	require.NoError(t, bundle.Reactions.Put(ctx, store.Reaction{
+		MessageID: "M1", SenderJID: "alice@s.whatsapp.net", Emoji: "👍", Timestamp: time.Now(),
+	}))
+
+	wa.incoming(waclient.IncomingMessage{
+		ID: "EVT2", ChatJID: "c@s.whatsapp.net", ChatKind: "user",
+		SenderJID: "alice@s.whatsapp.net", Timestamp: time.Unix(2000, 0).UTC(),
+		ReactionTargetID: "M1",
+		ReactionEmoji:    "",
+	})
+
+	got, err := bundle.Reactions.ListByMessageID(context.Background(), "M1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestHandleIncomingReactionDoesNotBumpUnread(t *testing.T) {
+	bundle, chats, _, _, _ := newInMemoryBundle()
+	wa := &reactionFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 5,
+	}
+
+	wa.incoming(waclient.IncomingMessage{
+		ID: "EVT", ChatJID: "c@s.whatsapp.net", ChatKind: "user",
+		SenderJID: "alice@s.whatsapp.net", Timestamp: time.Unix(2000, 0).UTC(),
+		ReactionTargetID: "M1",
+		ReactionEmoji:    "👍",
+	})
+
+	chat, err := bundle.Chats.Get(context.Background(), "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 5, chat.UnreadCount, "reaction must not bump unread_count")
+}
