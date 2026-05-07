@@ -41,6 +41,12 @@ func (f fakeStatusSvc) EditMessage(context.Context, string, string) (store.Messa
 	return store.Message{}, nil
 }
 func (f fakeStatusSvc) DeleteMessage(context.Context, string) error { return nil }
+func (f fakeStatusSvc) SendReaction(context.Context, string, string) error {
+	return nil
+}
+func (f fakeStatusSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
+	return nil, nil
+}
 
 var _ service.Service = fakeStatusSvc{}
 

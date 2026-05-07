@@ -80,6 +80,12 @@ func (f *fakeChatsSvc) EditMessage(context.Context, string, string) (store.Messa
 	return store.Message{}, nil
 }
 func (f *fakeChatsSvc) DeleteMessage(context.Context, string) error { return nil }
+func (f *fakeChatsSvc) SendReaction(context.Context, string, string) error {
+	return nil
+}
+func (f *fakeChatsSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
+	return nil, nil
+}
 
 var _ service.Service = (*fakeChatsSvc)(nil)
 

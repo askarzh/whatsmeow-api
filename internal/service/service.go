@@ -66,6 +66,10 @@ type Service interface {
 	// Plan 07a
 	EditMessage(ctx context.Context, messageID, newText string) (store.Message, error)
 	DeleteMessage(ctx context.Context, messageID string) error
+
+	// Plan 07b
+	SendReaction(ctx context.Context, messageID, emoji string) error
+	ListReactions(ctx context.Context, messageID string) ([]store.Reaction, error)
 }
 
 type svc struct {
@@ -234,6 +238,25 @@ func (s *svc) Stats(ctx context.Context) (Stats, error) {
 
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	ctx := context.Background()
+
+	// Plan 07b: route reactions BEFORE revoke/edit/normal paths.
+	if msg.ReactionTargetID != "" {
+		if msg.ReactionEmoji == "" {
+			if err := s.bundle.Reactions.Delete(ctx, msg.ReactionTargetID, msg.SenderJID); err != nil {
+				s.logger.Warn("clear reaction on incoming failed", "target", msg.ReactionTargetID, "err", err)
+			}
+		} else {
+			if err := s.bundle.Reactions.Put(ctx, store.Reaction{
+				MessageID: msg.ReactionTargetID,
+				SenderJID: msg.SenderJID,
+				Emoji:     msg.ReactionEmoji,
+				Timestamp: msg.Timestamp,
+			}); err != nil {
+				s.logger.Warn("persist reaction on incoming failed", "target", msg.ReactionTargetID, "err", err)
+			}
+		}
+		return
+	}
 
 	// Plan 07a: route edits and revokes BEFORE the normal-message path.
 	if msg.RevokeOfID != "" {
@@ -474,4 +497,48 @@ func (s *svc) ownsMessage(m store.Message) bool {
 		return false
 	}
 	return *st.JID == m.SenderJID
+}
+
+func (s *svc) SendReaction(ctx context.Context, messageID, emoji string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+
+	existing, err := s.bundle.Messages.Get(ctx, messageID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.wa.SendReaction(ctx, existing.ChatJID, messageID, emoji); err != nil {
+		return err
+	}
+
+	ourJID := ""
+	if st := s.wa.Status(); st.JID != nil {
+		ourJID = *st.JID
+	}
+
+	if emoji == "" {
+		if err := s.bundle.Reactions.Delete(ctx, messageID, ourJID); err != nil {
+			s.logger.Warn("clear local reaction failed", "id", messageID, "err", err)
+		}
+		return nil
+	}
+
+	if err := s.bundle.Reactions.Put(ctx, store.Reaction{
+		MessageID: messageID,
+		SenderJID: ourJID,
+		Emoji:     emoji,
+		Timestamp: time.Now(),
+	}); err != nil {
+		s.logger.Warn("persist local reaction failed", "id", messageID, "err", err)
+	}
+	return nil
+}
+
+func (s *svc) ListReactions(ctx context.Context, messageID string) ([]store.Reaction, error) {
+	if strings.TrimSpace(messageID) == "" {
+		return nil, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+	return s.bundle.Reactions.ListByMessageID(ctx, messageID)
 }

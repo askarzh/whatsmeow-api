@@ -138,6 +138,9 @@ func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) 
 	if evt.Info.IsFromMe {
 		return IncomingMessage{}, false
 	}
+	if evt.Message != nil && evt.Message.ReactionMessage != nil {
+		return translateReaction(evt)
+	}
 	if evt.Message != nil && evt.Message.ProtocolMessage != nil {
 		return translateProtocol(evt)
 	}
@@ -190,6 +193,20 @@ func translateProtocol(evt *events.Message) (IncomingMessage, bool) {
 	default:
 		return IncomingMessage{}, false
 	}
+}
+
+// translateReaction handles inbound *waE2E.ReactionMessage events.
+func translateReaction(evt *events.Message) (IncomingMessage, bool) {
+	rm := evt.Message.ReactionMessage
+	return IncomingMessage{
+		ID:               evt.Info.ID,
+		ChatJID:          evt.Info.Chat.String(),
+		ChatKind:         ChatKindFromJID(evt.Info.Chat.String()),
+		SenderJID:        evt.Info.Sender.String(),
+		Timestamp:        evt.Info.Timestamp,
+		ReactionTargetID: rm.GetKey().GetID(),
+		ReactionEmoji:    rm.GetText(),
+	}, true
 }
 
 // messageKindAndBody picks the relevant field out of a *waE2E.Message and
@@ -643,6 +660,31 @@ func (a *Adapter) SendRevoke(ctx context.Context, chatJID, originalMessageID str
 		Timestamp: resp.Timestamp,
 		SenderJID: senderJID,
 	}, nil
+}
+
+// SendReaction sends an emoji reaction to originalMessageID in chatJID.
+// Empty emoji string clears the caller's existing reaction.
+func (a *Adapter) SendReaction(ctx context.Context, chatJID, originalMessageID, emoji string) error {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return ErrNotConnected
+	}
+	senderJID := *a.client.Store.ID
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	msg := client.BuildReaction(to, senderJID, originalMessageID, emoji)
+
+	if _, err := client.SendMessage(ctx, to, msg); err != nil {
+		return fmt.Errorf("send reaction: %w", err)
+	}
+	return nil
 }
 
 // compile-time interface check

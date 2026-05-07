@@ -61,6 +61,12 @@ func (f fakeLoginQRSvc) EditMessage(context.Context, string, string) (store.Mess
 	return store.Message{}, nil
 }
 func (f fakeLoginQRSvc) DeleteMessage(context.Context, string) error { return nil }
+func (f fakeLoginQRSvc) SendReaction(context.Context, string, string) error {
+	return nil
+}
+func (f fakeLoginQRSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
+	return nil, nil
+}
 
 var _ service.Service = fakeLoginQRSvc{}
 
