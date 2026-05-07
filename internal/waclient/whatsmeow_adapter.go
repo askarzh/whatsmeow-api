@@ -138,6 +138,9 @@ func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) 
 	if evt.Info.IsFromMe {
 		return IncomingMessage{}, false
 	}
+	if evt.Message != nil && evt.Message.ReactionMessage != nil {
+		return translateReaction(evt)
+	}
 	if evt.Message != nil && evt.Message.ProtocolMessage != nil {
 		return translateProtocol(evt)
 	}
@@ -190,6 +193,20 @@ func translateProtocol(evt *events.Message) (IncomingMessage, bool) {
 	default:
 		return IncomingMessage{}, false
 	}
+}
+
+// translateReaction handles inbound *waE2E.ReactionMessage events.
+func translateReaction(evt *events.Message) (IncomingMessage, bool) {
+	rm := evt.Message.ReactionMessage
+	return IncomingMessage{
+		ID:               evt.Info.ID,
+		ChatJID:          evt.Info.Chat.String(),
+		ChatKind:         ChatKindFromJID(evt.Info.Chat.String()),
+		SenderJID:        evt.Info.Sender.String(),
+		Timestamp:        evt.Info.Timestamp,
+		ReactionTargetID: rm.GetKey().GetID(),
+		ReactionEmoji:    rm.GetText(),
+	}, true
 }
 
 // messageKindAndBody picks the relevant field out of a *waE2E.Message and
