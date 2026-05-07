@@ -63,6 +63,11 @@ type IncomingMessage struct {
 	// Mutually exclusive (ProtocolMessage is one variant or the other).
 	EditOfID   string
 	RevokeOfID string
+
+	// Plan 07b — set when this event is a reaction to a previous message.
+	// ReactionEmoji is empty string when the sender is removing their reaction.
+	ReactionTargetID string
+	ReactionEmoji    string
 }
 
 // WAClient is the abstraction over whatsmeow used by the rest of the daemon.
@@ -84,6 +89,9 @@ type WAClient interface {
 	// Plan 07a
 	SendEdit(ctx context.Context, chatJID, originalMessageID, newText string) (Sent, error)
 	SendRevoke(ctx context.Context, chatJID, originalMessageID string) (Sent, error)
+
+	// Plan 07b
+	SendReaction(ctx context.Context, chatJID, originalMessageID, emoji string) error
 }
 
 // Sentinel errors so callers can distinguish failure modes without parsing strings.

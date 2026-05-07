@@ -3,6 +3,7 @@ package waclient
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -643,6 +644,14 @@ func (a *Adapter) SendRevoke(ctx context.Context, chatJID, originalMessageID str
 		Timestamp: resp.Timestamp,
 		SenderJID: senderJID,
 	}, nil
+}
+
+// SendReaction sends a reaction to a previously-sent message.
+// An empty emoji removes the caller's existing reaction.
+// Not yet implemented — returns an error on every call.
+func (a *Adapter) SendReaction(ctx context.Context, chatJID, originalMessageID, emoji string) error {
+	_ = ctx; _ = chatJID; _ = originalMessageID; _ = emoji
+	return errors.New("waclient: SendReaction not yet implemented")
 }
 
 // compile-time interface check
