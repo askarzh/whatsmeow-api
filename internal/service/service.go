@@ -235,6 +235,28 @@ func (s *svc) Stats(ctx context.Context) (Stats, error) {
 func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	ctx := context.Background()
 
+	// Plan 07a: route edits and revokes BEFORE the normal-message path.
+	if msg.RevokeOfID != "" {
+		if err := s.bundle.Messages.SoftDelete(ctx, msg.RevokeOfID, msg.Timestamp); err != nil {
+			s.logger.Warn("soft-delete on incoming revoke failed", "id", msg.RevokeOfID, "err", err)
+		}
+		return
+	}
+	if msg.EditOfID != "" {
+		existing, err := s.bundle.Messages.Get(ctx, msg.EditOfID)
+		if err != nil {
+			s.logger.Warn("incoming edit references unknown message", "id", msg.EditOfID, "err", err)
+			return
+		}
+		existing.Body = msg.Body
+		t := msg.Timestamp
+		existing.EditedAt = &t
+		if err := s.bundle.Messages.Put(ctx, existing); err != nil {
+			s.logger.Warn("persist incoming edit failed", "id", msg.EditOfID, "err", err)
+		}
+		return
+	}
+
 	if msg.PushName != "" {
 		if err := s.bundle.Contacts.Put(ctx, store.Contact{
 			JID:      msg.SenderJID,

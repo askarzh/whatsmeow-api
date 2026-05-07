@@ -223,7 +223,15 @@ func (s *messageStore) Search(_ context.Context, query string, limit int) ([]sto
 	}
 	return out, nil
 }
-func (s *messageStore) SoftDelete(context.Context, string, time.Time) error { return nil }
+func (s *messageStore) SoftDelete(_ context.Context, id string, at time.Time) error {
+	msg, ok := s.m[id]
+	if !ok {
+		return store.ErrNotFound
+	}
+	msg.DeletedAt = &at
+	s.m[id] = msg
+	return nil
+}
 func (s *messageStore) Count(context.Context) (int, error) {
 	n := 0
 	for _, m := range s.m {
@@ -1039,4 +1047,106 @@ func TestHandleIncomingDownloadFailureLogged(t *testing.T) {
 
 	_, err := bundle.Media.GetByMessageID(context.Background(), "MIN2")
 	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestHandleIncomingRevoke(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	// Seed the message that gets revoked.
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "secret",
+	}
+
+	wa.incoming(waclient.IncomingMessage{
+		ID:         "EVT1",
+		ChatJID:    "c@s.whatsapp.net",
+		ChatKind:   "user",
+		SenderJID:  "other@s.whatsapp.net",
+		Timestamp:  time.Unix(2000, 0).UTC(),
+		RevokeOfID: "M1",
+	})
+
+	got, err := bundle.Messages.Get(context.Background(), "M1")
+	require.NoError(t, err)
+	require.NotNil(t, got.DeletedAt)
+}
+
+func TestHandleIncomingEditUpdatesBody(t *testing.T) {
+	bundle, _, msgs, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "original",
+	}
+
+	editTS := time.Unix(2000, 0).UTC()
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "EVT2",
+		ChatJID:   "c@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "other@s.whatsapp.net",
+		Timestamp: editTS,
+		Body:      "edited body",
+		EditOfID:  "M1",
+	})
+
+	got, err := bundle.Messages.Get(context.Background(), "M1")
+	require.NoError(t, err)
+	assert.Equal(t, "edited body", got.Body)
+	require.NotNil(t, got.EditedAt)
+	assert.True(t, got.EditedAt.Equal(editTS))
+}
+
+func TestHandleIncomingEditUnknownIDLogged(t *testing.T) {
+	bundle, _, _, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	// No seeded message; the edit references a non-existent ID.
+	wa.incoming(waclient.IncomingMessage{
+		ID:        "EVT3",
+		ChatJID:   "c@s.whatsapp.net",
+		ChatKind:  "user",
+		SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(),
+		Body:      "edited body",
+		EditOfID:  "NON_EXISTENT",
+	})
+
+	// No row should be created.
+	_, err := bundle.Messages.Get(context.Background(), "NON_EXISTENT")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestHandleIncomingRevokeDoesNotBumpUnread(t *testing.T) {
+	bundle, chats, msgs, _ := newInMemoryBundle()
+	wa := &mediaSenderFakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incoming)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 5,
+	}
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "other@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+
+	wa.incoming(waclient.IncomingMessage{
+		ID: "EVT", ChatJID: "c@s.whatsapp.net", ChatKind: "user",
+		SenderJID: "other@s.whatsapp.net", Timestamp: time.Unix(2000, 0).UTC(),
+		RevokeOfID: "M1",
+	})
+
+	chat, err := bundle.Chats.Get(context.Background(), "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 5, chat.UnreadCount, "revoke must not bump unread_count")
 }
