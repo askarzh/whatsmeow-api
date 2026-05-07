@@ -62,6 +62,16 @@ func (f *fakeWA) SendReaction(context.Context, string, string, string) error { r
 func (f *fakeWA) MarkRead(context.Context, string, string, string, time.Time) error { return nil }
 func (f *fakeWA) SendChatPresence(context.Context, string, string) error  { return nil }
 func (f *fakeWA) OnIncomingReceipt(h func(waclient.IncomingReceipt))     { f.incomingReceipt = h }
+func (f *fakeWA) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
+func (f *fakeWA) GetGroupInfo(context.Context, string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
+func (f *fakeWA) UpdateGroupParticipants(context.Context, string, string, []string) ([]waclient.ParticipantChange, error) {
+	return nil, nil
+}
+func (f *fakeWA) LeaveGroup(context.Context, string) error { return nil }
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"

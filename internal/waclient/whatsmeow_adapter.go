@@ -3,6 +3,7 @@ package waclient
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -792,6 +793,37 @@ func (a *Adapter) OnIncomingReceipt(handler func(IncomingReceipt)) {
 	a.mu.Lock()
 	a.incomingReceipt = handler
 	a.mu.Unlock()
+}
+
+// CreateGroup is implemented in Plan 08 Task 2.
+func (a *Adapter) CreateGroup(ctx context.Context, name string, participantJIDs []string) (Group, error) {
+	_ = ctx
+	_ = name
+	_ = participantJIDs
+	return Group{}, errors.New("waclient: CreateGroup not yet implemented")
+}
+
+// GetGroupInfo is implemented in Plan 08 Task 2.
+func (a *Adapter) GetGroupInfo(ctx context.Context, groupJID string) (Group, error) {
+	_ = ctx
+	_ = groupJID
+	return Group{}, errors.New("waclient: GetGroupInfo not yet implemented")
+}
+
+// UpdateGroupParticipants is implemented in Plan 08 Task 2.
+func (a *Adapter) UpdateGroupParticipants(ctx context.Context, groupJID, action string, participantJIDs []string) ([]ParticipantChange, error) {
+	_ = ctx
+	_ = groupJID
+	_ = action
+	_ = participantJIDs
+	return nil, errors.New("waclient: UpdateGroupParticipants not yet implemented")
+}
+
+// LeaveGroup is implemented in Plan 08 Task 2.
+func (a *Adapter) LeaveGroup(ctx context.Context, groupJID string) error {
+	_ = ctx
+	_ = groupJID
+	return errors.New("waclient: LeaveGroup not yet implemented")
 }
 
 // compile-time interface check

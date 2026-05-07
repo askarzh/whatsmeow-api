@@ -70,6 +70,31 @@ type IncomingMessage struct {
 	ReactionEmoji    string
 }
 
+// Group is the daemon's view of a WhatsApp group.
+type Group struct {
+	JID          string
+	Name         string
+	OwnerJID     string
+	CreatedAt    time.Time
+	Participants []GroupMember
+}
+
+// GroupMember is one participant in a group.
+type GroupMember struct {
+	JID          string
+	IsAdmin      bool
+	IsSuperAdmin bool
+}
+
+// ParticipantChange describes the per-JID outcome of an add/remove batch.
+// OK == true with empty Error means the change applied; OK == false with
+// non-empty Error means whatsmeow rejected this specific JID.
+type ParticipantChange struct {
+	JID   string
+	OK    bool
+	Error string
+}
+
 // IncomingReceipt is a read or delivery receipt received from another device
 // or peer, translated from a whatsmeow *events.Receipt.
 type IncomingReceipt struct {
@@ -107,6 +132,12 @@ type WAClient interface {
 	MarkRead(ctx context.Context, chatJID, senderJID, messageID string, timestamp time.Time) error
 	SendChatPresence(ctx context.Context, chatJID, state string) error
 	OnIncomingReceipt(handler func(IncomingReceipt))
+
+	// Plan 08
+	CreateGroup(ctx context.Context, name string, participantJIDs []string) (Group, error)
+	GetGroupInfo(ctx context.Context, groupJID string) (Group, error)
+	UpdateGroupParticipants(ctx context.Context, groupJID, action string, participantJIDs []string) ([]ParticipantChange, error)
+	LeaveGroup(ctx context.Context, groupJID string) error
 }
 
 // Sentinel errors so callers can distinguish failure modes without parsing strings.
