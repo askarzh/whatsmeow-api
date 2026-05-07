@@ -138,6 +138,9 @@ func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) 
 	if evt.Info.IsFromMe {
 		return IncomingMessage{}, false
 	}
+	if evt.Message != nil && evt.Message.ProtocolMessage != nil {
+		return translateProtocol(evt)
+	}
 	kind, body, downloader, ok := messageKindAndBody(a, evt.Message)
 	if !ok {
 		return IncomingMessage{}, false
@@ -153,6 +156,40 @@ func translateIncoming(a *Adapter, evt *events.Message) (IncomingMessage, bool) 
 		PushName:        evt.Info.PushName,
 		MediaDownloader: downloader,
 	}, true
+}
+
+// translateProtocol handles inbound *waE2E.ProtocolMessage events for revoke +
+// edit. Returns false for protocol-message types we don't handle in Plan 07a
+// (e.g. read receipts arrive separately).
+func translateProtocol(evt *events.Message) (IncomingMessage, bool) {
+	pm := evt.Message.ProtocolMessage
+	switch pm.GetType() {
+	case waE2E.ProtocolMessage_REVOKE:
+		return IncomingMessage{
+			ID:         evt.Info.ID,
+			ChatJID:    evt.Info.Chat.String(),
+			ChatKind:   ChatKindFromJID(evt.Info.Chat.String()),
+			SenderJID:  evt.Info.Sender.String(),
+			Timestamp:  evt.Info.Timestamp,
+			RevokeOfID: pm.GetKey().GetID(),
+		}, true
+	case waE2E.ProtocolMessage_MESSAGE_EDIT:
+		body := ""
+		if edited := pm.GetEditedMessage(); edited != nil {
+			body = edited.GetConversation()
+		}
+		return IncomingMessage{
+			ID:        evt.Info.ID,
+			ChatJID:   evt.Info.Chat.String(),
+			ChatKind:  ChatKindFromJID(evt.Info.Chat.String()),
+			SenderJID: evt.Info.Sender.String(),
+			Timestamp: evt.Info.Timestamp,
+			Body:      body,
+			EditOfID:  pm.GetKey().GetID(),
+		}, true
+	default:
+		return IncomingMessage{}, false
+	}
 }
 
 // messageKindAndBody picks the relevant field out of a *waE2E.Message and
