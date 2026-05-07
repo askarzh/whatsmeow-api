@@ -408,9 +408,8 @@ func (a *Adapter) Close() error {
 }
 
 // SendText sends a plain-text message to chatJID.
-// replyTo, if non-empty, is the message ID this is a reply to (Plan 07a Task 2 wires this).
+// replyTo, if non-empty, is the message ID this is a reply to.
 func (a *Adapter) SendText(ctx context.Context, chatJID, text, replyTo string) (Sent, error) {
-	_ = replyTo // wired in Plan 07a Task 2
 	a.mu.Lock()
 	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
 		a.mu.Unlock()
@@ -424,12 +423,24 @@ func (a *Adapter) SendText(ctx context.Context, chatJID, text, replyTo string) (
 	if err != nil {
 		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
 	}
-	msg := &waE2E.Message{
-		Conversation: proto.String(text),
+
+	var msg *waE2E.Message
+	if replyTo == "" {
+		msg = &waE2E.Message{Conversation: proto.String(text)}
+	} else {
+		msg = &waE2E.Message{
+			ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+				Text: proto.String(text),
+				ContextInfo: &waE2E.ContextInfo{
+					StanzaID: proto.String(replyTo),
+				},
+			},
+		}
 	}
+
 	resp, err := client.SendMessage(ctx, to, msg)
 	if err != nil {
-		return Sent{}, fmt.Errorf("send message: %w", err)
+		return Sent{}, fmt.Errorf("send text: %w", err)
 	}
 	return Sent{
 		ID:        resp.ID,
