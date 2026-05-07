@@ -19,16 +19,17 @@ import (
 )
 
 type fakeWA struct {
-	status        waclient.Status
-	resumeErr     error
-	loginQR       <-chan waclient.QREvent
-	loginQRErr    error
-	loginPhone    <-chan waclient.PairEvent
-	loginPhoneErr error
-	loginPhoneArg string
-	logoutErr     error
-	closed        bool
-	incoming      func(waclient.IncomingMessage)
+	status          waclient.Status
+	resumeErr       error
+	loginQR         <-chan waclient.QREvent
+	loginQRErr      error
+	loginPhone      <-chan waclient.PairEvent
+	loginPhoneErr   error
+	loginPhoneArg   string
+	logoutErr       error
+	closed          bool
+	incoming        func(waclient.IncomingMessage)
+	incomingReceipt func(waclient.IncomingReceipt)
 }
 
 func (f *fakeWA) Status() waclient.Status      { return f.status }
@@ -58,6 +59,9 @@ func (f *fakeWA) SendMedia(context.Context, string, string, string, string, stri
 	return waclient.Sent{}, nil
 }
 func (f *fakeWA) SendReaction(context.Context, string, string, string) error { return nil }
+func (f *fakeWA) MarkRead(context.Context, string, string, string, time.Time) error { return nil }
+func (f *fakeWA) SendChatPresence(context.Context, string, string) error  { return nil }
+func (f *fakeWA) OnIncomingReceipt(h func(waclient.IncomingReceipt))     { f.incomingReceipt = h }
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"

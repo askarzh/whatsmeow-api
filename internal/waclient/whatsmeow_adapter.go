@@ -3,6 +3,7 @@ package waclient
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -30,8 +31,9 @@ type Adapter struct {
 	loginInProgress bool
 	lastConnectedAt time.Time
 
-	pairCh          chan string          // signaled with outcome by event handler during phone pair
+	pairCh          chan string           // signaled with outcome by event handler during phone pair
 	incomingHandler func(IncomingMessage) // Plan 04
+	incomingReceipt func(IncomingReceipt) // Plan 07c
 }
 
 // NewAdapter constructs an Adapter. The container must already be initialized
@@ -685,6 +687,26 @@ func (a *Adapter) SendReaction(ctx context.Context, chatJID, originalMessageID, 
 		return fmt.Errorf("send reaction: %w", err)
 	}
 	return nil
+}
+
+// MarkRead sends a read receipt for messageID in chatJID.
+// Stub — not yet implemented.
+func (a *Adapter) MarkRead(_ context.Context, _, _, _ string, _ time.Time) error {
+	return errors.New("waclient: MarkRead not yet implemented")
+}
+
+// SendChatPresence sends a typing / paused presence update for chatJID.
+// Stub — not yet implemented.
+func (a *Adapter) SendChatPresence(_ context.Context, _, _ string) error {
+	return errors.New("waclient: SendChatPresence not yet implemented")
+}
+
+// OnIncomingReceipt registers a handler invoked for each incoming read / delivery
+// receipt translated from whatsmeow *events.Receipt. Setting nil clears the handler.
+func (a *Adapter) OnIncomingReceipt(handler func(IncomingReceipt)) {
+	a.mu.Lock()
+	a.incomingReceipt = handler
+	a.mu.Unlock()
 }
 
 // compile-time interface check
