@@ -55,6 +55,9 @@ func (f fakeStatsSvc) SendReaction(context.Context, string, string) error {
 func (f fakeStatsSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
+func (f fakeStatsSvc) MarkMessageRead(context.Context, string) error               { return nil }
+func (f fakeStatsSvc) SendTyping(context.Context, string, string) error            { return nil }
+func (f fakeStatsSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
 
 var _ service.Service = fakeStatsSvc{}
 

@@ -100,6 +100,9 @@ func (f *fakeSendSvc) SendReaction(context.Context, string, string) error {
 func (f *fakeSendSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
+func (f *fakeSendSvc) MarkMessageRead(context.Context, string) error               { return nil }
+func (f *fakeSendSvc) SendTyping(context.Context, string, string) error            { return nil }
+func (f *fakeSendSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
 
 var _ service.Service = (*fakeSendSvc)(nil)
 

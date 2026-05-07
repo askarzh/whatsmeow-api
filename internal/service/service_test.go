@@ -398,6 +398,184 @@ func (s *receiptStore) ListByMessageID(_ context.Context, messageID string) ([]s
 	return out, nil
 }
 
+type readFakeWA struct {
+	fakeWA
+	gotMarkChat      string
+	gotMarkSender    string
+	gotMarkMsgID     string
+	markErr          error
+	gotPresenceChat  string
+	gotPresenceState string
+	presenceErr      error
+}
+
+func (f *readFakeWA) MarkRead(_ context.Context, chatJID, senderJID, messageID string, _ time.Time) error {
+	f.gotMarkChat = chatJID
+	f.gotMarkSender = senderJID
+	f.gotMarkMsgID = messageID
+	return f.markErr
+}
+func (f *readFakeWA) SendChatPresence(_ context.Context, chatJID, state string) error {
+	f.gotPresenceChat = chatJID
+	f.gotPresenceState = state
+	return f.presenceErr
+}
+
+func TestMarkMessageReadHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 5,
+	}
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "hi",
+	}
+
+	require.NoError(t, s.MarkMessageRead(ctx, "M1"))
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotMarkChat)
+	assert.Equal(t, "alice@s.whatsapp.net", wa.gotMarkSender)
+	assert.Equal(t, "M1", wa.gotMarkMsgID)
+
+	got, err := bundle.Chats.Get(ctx, "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 4, got.UnreadCount)
+}
+
+func TestMarkMessageReadDecrementClampsAtZero(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 0,
+	}
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "hi",
+	}
+
+	require.NoError(t, s.MarkMessageRead(ctx, "M1"))
+	got, err := bundle.Chats.Get(ctx, "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 0, got.UnreadCount, "must not go negative")
+}
+
+func TestMarkMessageReadNotFound(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.MarkMessageRead(context.Background(), "missing")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestMarkMessageReadNotConnected(t *testing.T) {
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{
+		fakeWA:  fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		markErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+	err := s.MarkMessageRead(context.Background(), "M1")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestMarkMessageReadValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.MarkMessageRead(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSendTypingComposing(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NoError(t, s.SendTyping(context.Background(), "c@s.whatsapp.net", "composing"))
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotPresenceChat)
+	assert.Equal(t, "composing", wa.gotPresenceState)
+}
+
+func TestSendTypingPaused(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NoError(t, s.SendTyping(context.Background(), "c@s.whatsapp.net", "paused"))
+	assert.Equal(t, "paused", wa.gotPresenceState)
+}
+
+func TestSendTypingValidationBadState(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendTyping(context.Background(), "c@s.whatsapp.net", "yelling")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSendTypingValidationEmptyChatJID(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendTyping(context.Background(), "", "composing")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSendTypingNotConnected(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{
+		fakeWA:      fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		presenceErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendTyping(context.Background(), "c@s.whatsapp.net", "composing")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestListReceiptsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	require.NoError(t, bundle.Receipts.Put(ctx, store.Receipt{
+		MessageID: "M1", ReaderJID: "alice@s.whatsapp.net", Type: "read", Timestamp: time.Unix(1000, 0).UTC(),
+	}))
+
+	got, err := s.ListReceipts(ctx, "M1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "read", got[0].Type)
+}
+
+func TestListReceiptsValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	_, err := s.ListReceipts(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
 type sendableFakeWA struct {
 	fakeWA
 	sentArgs   [3]string // [0]=chatJID, [1]=text, [2]=replyTo
