@@ -32,6 +32,7 @@ type Store struct {
 	events    *EventsLog
 	kv        *KVStore
 	reactions *ReactionStore // Plan 07b
+	receipts  *ReceiptStore  // Plan 07c
 }
 
 // New opens (or creates) the SQLite database at path, runs all pending
@@ -60,6 +61,7 @@ func New(ctx context.Context, path string) (*Store, error) {
 	s.events = &EventsLog{db: db}
 	s.kv = &KVStore{db: db}
 	s.reactions = &ReactionStore{db: db}
+	s.receipts = &ReceiptStore{db: db}
 	return s, nil
 }
 
@@ -78,6 +80,7 @@ func (s *Store) Bundle() store.Bundle {
 		Events:    s.events,
 		KV:        s.kv,
 		Reactions: s.reactions, // Plan 07b
+		Receipts:  s.receipts,  // Plan 07c
 	}
 }
 
