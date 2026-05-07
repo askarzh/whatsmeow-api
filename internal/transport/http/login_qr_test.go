@@ -73,6 +73,13 @@ func (f fakeLoginQRSvc) ListReceipts(context.Context, string) ([]store.Receipt, 
 func (f fakeLoginQRSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }
+func (f fakeLoginQRSvc) ListGroupMembers(context.Context, string) ([]waclient.GroupMember, error) {
+	return nil, nil
+}
+func (f fakeLoginQRSvc) UpdateGroupMembers(context.Context, string, string, []string) ([]waclient.ParticipantChange, error) {
+	return nil, nil
+}
+func (f fakeLoginQRSvc) LeaveGroup(context.Context, string) error { return nil }
 
 var _ service.Service = fakeLoginQRSvc{}
 

@@ -79,6 +79,9 @@ type Service interface {
 
 	// Plan 08
 	CreateGroup(ctx context.Context, name string, participantJIDs []string) (waclient.Group, error)
+	ListGroupMembers(ctx context.Context, groupJID string) ([]waclient.GroupMember, error)
+	UpdateGroupMembers(ctx context.Context, groupJID, action string, participantJIDs []string) ([]waclient.ParticipantChange, error)
+	LeaveGroup(ctx context.Context, groupJID string) error
 }
 
 type svc struct {
@@ -636,4 +639,41 @@ func (s *svc) CreateGroup(ctx context.Context, name string, participantJIDs []st
 	}
 
 	return group, nil
+}
+
+// ListGroupMembers returns the current participant list for a group, fetched
+// live from whatsmeow.
+func (s *svc) ListGroupMembers(ctx context.Context, groupJID string) ([]waclient.GroupMember, error) {
+	if strings.TrimSpace(groupJID) == "" {
+		return nil, fmt.Errorf("%w: group_jid is required", ErrInvalidRequest)
+	}
+	group, err := s.wa.GetGroupInfo(ctx, groupJID)
+	if err != nil {
+		return nil, err
+	}
+	return group.Participants, nil
+}
+
+// UpdateGroupMembers adds or removes participants from a group. The action
+// must be either "add" or "remove" and the participant list must be non-empty.
+func (s *svc) UpdateGroupMembers(ctx context.Context, groupJID, action string, participantJIDs []string) ([]waclient.ParticipantChange, error) {
+	if strings.TrimSpace(groupJID) == "" {
+		return nil, fmt.Errorf("%w: group_jid is required", ErrInvalidRequest)
+	}
+	if action != "add" && action != "remove" {
+		return nil, fmt.Errorf("%w: action must be add or remove", ErrInvalidRequest)
+	}
+	if len(participantJIDs) == 0 {
+		return nil, fmt.Errorf("%w: at least one participant is required", ErrInvalidRequest)
+	}
+	return s.wa.UpdateGroupParticipants(ctx, groupJID, action, participantJIDs)
+}
+
+// LeaveGroup leaves the given group. The local chats row is preserved so the
+// caller's history stays intact.
+func (s *svc) LeaveGroup(ctx context.Context, groupJID string) error {
+	if strings.TrimSpace(groupJID) == "" {
+		return fmt.Errorf("%w: group_jid is required", ErrInvalidRequest)
+	}
+	return s.wa.LeaveGroup(ctx, groupJID)
 }

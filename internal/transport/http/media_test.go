@@ -90,6 +90,13 @@ func (f *fakeMediaSvc) ListReceipts(context.Context, string) ([]store.Receipt, e
 func (f *fakeMediaSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }
+func (f *fakeMediaSvc) ListGroupMembers(context.Context, string) ([]waclient.GroupMember, error) {
+	return nil, nil
+}
+func (f *fakeMediaSvc) UpdateGroupMembers(context.Context, string, string, []string) ([]waclient.ParticipantChange, error) {
+	return nil, nil
+}
+func (f *fakeMediaSvc) LeaveGroup(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeMediaSvc)(nil)
 

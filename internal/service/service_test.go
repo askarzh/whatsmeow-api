@@ -1796,3 +1796,130 @@ func TestCreateGroupNotConnected(t *testing.T) {
 	// No chat row should have been created.
 	assert.Empty(t, *chats)
 }
+
+func TestListGroupMembersHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{
+		fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		infoResp: waclient.Group{
+			JID: "g1@g.us", Name: "Test", OwnerJID: jid,
+			Participants: []waclient.GroupMember{
+				{JID: jid, IsAdmin: true, IsSuperAdmin: true},
+				{JID: "alice@s.whatsapp.net"},
+			},
+		},
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	got, err := s.ListGroupMembers(ctx, "g1@g.us")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "g1@g.us", wa.gotInfoJID)
+}
+
+func TestListGroupMembersValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	_, err := s.ListGroupMembers(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListGroupMembersNotConnected(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{
+		fakeWA:  fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		infoErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	_, err := s.ListGroupMembers(context.Background(), "g1@g.us")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestUpdateGroupMembersHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{
+		fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		updateResp: []waclient.ParticipantChange{
+			{JID: "alice@s.whatsapp.net", OK: true},
+		},
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	got, err := s.UpdateGroupMembers(ctx, "g1@g.us", "add", []string{"alice@s.whatsapp.net"})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.True(t, got[0].OK)
+	assert.Equal(t, "g1@g.us", wa.gotUpdateGroupJID)
+	assert.Equal(t, "add", wa.gotUpdateAction)
+	assert.Equal(t, []string{"alice@s.whatsapp.net"}, wa.gotUpdateParts)
+}
+
+func TestUpdateGroupMembersValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	cases := []struct {
+		label  string
+		group  string
+		action string
+		parts  []string
+	}{
+		{"empty group jid", "", "add", []string{"alice@s.whatsapp.net"}},
+		{"bad action", "g1@g.us", "yelling", []string{"alice@s.whatsapp.net"}},
+		{"empty participants", "g1@g.us", "add", []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.label, func(t *testing.T) {
+			_, err := s.UpdateGroupMembers(context.Background(), tc.group, tc.action, tc.parts)
+			require.Error(t, err)
+			assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+		})
+	}
+}
+
+func TestLeaveGroupHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	// Pre-seed a chat row so we can verify it's untouched after leaving.
+	(*chats)["g1@g.us"] = store.Chat{JID: "g1@g.us", Kind: "group", Name: "Test"}
+
+	require.NoError(t, s.LeaveGroup(ctx, "g1@g.us"))
+	assert.Equal(t, "g1@g.us", wa.gotLeaveJID)
+
+	// History preserved.
+	require.Contains(t, *chats, "g1@g.us")
+}
+
+func TestLeaveGroupValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.LeaveGroup(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestLeaveGroupNotConnected(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &groupFakeWA{
+		fakeWA:   fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		leaveErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.LeaveGroup(context.Background(), "g1@g.us")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}

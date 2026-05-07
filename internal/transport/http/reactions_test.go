@@ -85,6 +85,13 @@ func (f *fakeReactionsSvc) ListReceipts(context.Context, string) ([]store.Receip
 func (f *fakeReactionsSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }
+func (f *fakeReactionsSvc) ListGroupMembers(context.Context, string) ([]waclient.GroupMember, error) {
+	return nil, nil
+}
+func (f *fakeReactionsSvc) UpdateGroupMembers(context.Context, string, string, []string) ([]waclient.ParticipantChange, error) {
+	return nil, nil
+}
+func (f *fakeReactionsSvc) LeaveGroup(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeReactionsSvc)(nil)
 

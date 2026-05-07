@@ -92,6 +92,13 @@ func (f *fakeReceiptsSvc) ListReceipts(_ context.Context, messageID string) ([]s
 func (f *fakeReceiptsSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
 	return waclient.Group{}, nil
 }
+func (f *fakeReceiptsSvc) ListGroupMembers(context.Context, string) ([]waclient.GroupMember, error) {
+	return nil, nil
+}
+func (f *fakeReceiptsSvc) UpdateGroupMembers(context.Context, string, string, []string) ([]waclient.ParticipantChange, error) {
+	return nil, nil
+}
+func (f *fakeReceiptsSvc) LeaveGroup(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeReceiptsSvc)(nil)
 
