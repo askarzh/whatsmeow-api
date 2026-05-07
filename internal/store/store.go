@@ -49,6 +49,15 @@ type MediaRef struct {
 	Path      string
 }
 
+// Reaction is an emoji reaction on a message. PK is (MessageID, SenderJID) —
+// each user has at most one current reaction per message.
+type Reaction struct {
+	MessageID string
+	SenderJID string
+	Emoji     string
+	Timestamp time.Time
+}
+
 // EventLogEntry is one row in events_log, used by SSE Last-Event-ID resume.
 type EventLogEntry struct {
 	Seq     int64
@@ -105,15 +114,23 @@ type KV interface {
 	Delete(ctx context.Context, key string) error
 }
 
+// ReactionStore manages the reactions table.
+type ReactionStore interface {
+	Put(ctx context.Context, r Reaction) error
+	Delete(ctx context.Context, messageID, senderJID string) error
+	ListByMessageID(ctx context.Context, messageID string) ([]Reaction, error)
+}
+
 // Bundle aggregates the per-domain interfaces. Constructed by the SQLite store
 // (or, in Plan 10, the Postgres store) and passed into HTTP handlers via Deps.
 type Bundle struct {
-	Chats    ChatStore
-	Messages MessageStore
-	Contacts ContactStore
-	Media    MediaStore
-	Events   EventsLog
-	KV       KV
+	Chats     ChatStore
+	Messages  MessageStore
+	Contacts  ContactStore
+	Media     MediaStore
+	Events    EventsLog
+	KV        KV
+	Reactions ReactionStore // Plan 07b
 }
 
 // ErrNotFound is returned by Get* methods when the key is absent.
