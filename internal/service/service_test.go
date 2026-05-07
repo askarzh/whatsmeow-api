@@ -1188,3 +1188,133 @@ func TestHandleIncomingRevokeDoesNotBumpUnread(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5, chat.UnreadCount, "revoke must not bump unread_count")
 }
+
+type reactionFakeWA struct {
+	fakeWA
+	gotReactionChatJID string
+	gotReactionMsgID   string
+	gotReactionEmoji   string
+	reactionErr        error
+}
+
+func (f *reactionFakeWA) SendReaction(_ context.Context, chatJID, originalMessageID, emoji string) error {
+	f.gotReactionChatJID = chatJID
+	f.gotReactionMsgID = originalMessageID
+	f.gotReactionEmoji = emoji
+	return f.reactionErr
+}
+
+func TestSendReactionHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _, rs := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+
+	require.NoError(t, s.SendReaction(ctx, "M1", "👍"))
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotReactionChatJID)
+	assert.Equal(t, "M1", wa.gotReactionMsgID)
+	assert.Equal(t, "👍", wa.gotReactionEmoji)
+
+	// Local reactions store has our reaction.
+	got, err := bundle.Reactions.ListByMessageID(ctx, "M1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, jid, got[0].SenderJID)
+	assert.Equal(t, "👍", got[0].Emoji)
+	_ = rs
+}
+
+func TestSendReactionClear(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, msgs, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+	// Pre-seed: we already had a reaction.
+	require.NoError(t, bundle.Reactions.Put(ctx, store.Reaction{
+		MessageID: "M1", SenderJID: jid, Emoji: "👍", Timestamp: time.Now(),
+	}))
+
+	require.NoError(t, s.SendReaction(ctx, "M1", ""))
+	assert.Equal(t, "", wa.gotReactionEmoji)
+
+	// Local reaction is gone.
+	got, err := bundle.Reactions.ListByMessageID(ctx, "M1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestSendReactionNotFound(t *testing.T) {
+	bundle, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendReaction(context.Background(), "missing", "👍")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestSendReactionNotConnected(t *testing.T) {
+	bundle, _, msgs, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{
+		fakeWA:      fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		reactionErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+	err := s.SendReaction(context.Background(), "M1", "👍")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+
+	// Local store NOT touched.
+	got, err := bundle.Reactions.ListByMessageID(context.Background(), "M1")
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
+func TestSendReactionValidation(t *testing.T) {
+	bundle, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendReaction(context.Background(), "", "👍")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestListReactionsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	require.NoError(t, bundle.Reactions.Put(ctx, store.Reaction{
+		MessageID: "M1", SenderJID: "alice@s.whatsapp.net", Emoji: "👍", Timestamp: time.Unix(1000, 0).UTC(),
+	}))
+
+	got, err := s.ListReactions(ctx, "M1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "👍", got[0].Emoji)
+}
+
+func TestListReactionsValidation(t *testing.T) {
+	bundle, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	_, err := s.ListReactions(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
