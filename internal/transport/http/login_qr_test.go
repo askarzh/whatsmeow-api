@@ -57,6 +57,10 @@ func (f fakeLoginQRSvc) SendMedia(context.Context, service.SendMediaRequest) (st
 func (f fakeLoginQRSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
 	return store.MediaRef{}, nil
 }
+func (f fakeLoginQRSvc) EditMessage(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeLoginQRSvc) DeleteMessage(context.Context, string) error { return nil }
 
 var _ service.Service = fakeLoginQRSvc{}
 

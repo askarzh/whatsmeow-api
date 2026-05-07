@@ -74,6 +74,10 @@ func (f *fakeMediaSvc) GetMediaRef(_ context.Context, id string) (store.MediaRef
 	f.gotMessageID = id
 	return f.getResp, f.getErr
 }
+func (f *fakeMediaSvc) EditMessage(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f *fakeMediaSvc) DeleteMessage(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeMediaSvc)(nil)
 

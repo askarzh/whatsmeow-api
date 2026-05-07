@@ -65,6 +65,10 @@ func (f *fakeContactsSvc) SendMedia(context.Context, service.SendMediaRequest) (
 func (f *fakeContactsSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
 	return store.MediaRef{}, nil
 }
+func (f *fakeContactsSvc) EditMessage(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f *fakeContactsSvc) DeleteMessage(context.Context, string) error { return nil }
 
 var _ service.Service = (*fakeContactsSvc)(nil)
 

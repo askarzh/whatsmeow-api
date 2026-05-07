@@ -35,6 +35,10 @@ func (f fakeLogoutSvc) SendMedia(context.Context, service.SendMediaRequest) (sto
 func (f fakeLogoutSvc) GetMediaRef(context.Context, string) (store.MediaRef, error) {
 	return store.MediaRef{}, nil
 }
+func (f fakeLogoutSvc) EditMessage(context.Context, string, string) (store.Message, error) {
+	return store.Message{}, nil
+}
+func (f fakeLogoutSvc) DeleteMessage(context.Context, string) error { return nil }
 
 var _ service.Service = fakeLogoutSvc{}
 
