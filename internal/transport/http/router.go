@@ -53,6 +53,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodGet, "/stats", StatsHandler(d.Service))
 			r.Method(http.MethodPost, "/media", SendMediaHandler(d.Service, d.Config.HTTP.MaxBodyBytes))
 			r.Method(http.MethodGet, "/media/{message_id}", GetMediaHandler(d.Service))
+			r.Method(http.MethodPost, "/messages/{id}/reactions", SendReactionHandler(d.Service))
+			r.Method(http.MethodGet, "/messages/{id}/reactions", ListReactionsHandler(d.Service))
 		})
 	})
 
