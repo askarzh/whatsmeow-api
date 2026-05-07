@@ -70,6 +70,16 @@ type IncomingMessage struct {
 	ReactionEmoji    string
 }
 
+// IncomingReceipt is a read or delivery receipt received from another device
+// or peer, translated from a whatsmeow *events.Receipt.
+type IncomingReceipt struct {
+	MessageIDs []string
+	ChatJID    string
+	ReaderJID  string
+	Type       string // "read" | "read-self" | "delivery" | ...
+	Timestamp  time.Time
+}
+
 // WAClient is the abstraction over whatsmeow used by the rest of the daemon.
 type WAClient interface {
 	Status() Status
@@ -92,6 +102,11 @@ type WAClient interface {
 
 	// Plan 07b
 	SendReaction(ctx context.Context, chatJID, originalMessageID, emoji string) error
+
+	// Plan 07c
+	MarkRead(ctx context.Context, chatJID, senderJID, messageID string, timestamp time.Time) error
+	SendChatPresence(ctx context.Context, chatJID, state string) error
+	OnIncomingReceipt(handler func(IncomingReceipt))
 }
 
 // Sentinel errors so callers can distinguish failure modes without parsing strings.

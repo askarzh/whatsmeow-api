@@ -25,7 +25,7 @@ func TestNewCreatesAllTables(t *testing.T) {
 	t.Cleanup(func() { _ = raw.Close() })
 
 	expectedTables := []string{
-		"chats", "contacts", "events_log", "kv", "media", "messages", "messages_fts", "reactions",
+		"chats", "contacts", "events_log", "kv", "media", "messages", "messages_fts", "reactions", "receipts",
 	}
 	for _, table := range expectedTables {
 		var name string
@@ -66,4 +66,5 @@ func TestBundleFieldsNonNil(t *testing.T) {
 	assert.NotNil(t, b.Events)
 	assert.NotNil(t, b.KV)
 	assert.NotNil(t, b.Reactions) // Plan 07b
+	assert.NotNil(t, b.Receipts) // Plan 07c
 }

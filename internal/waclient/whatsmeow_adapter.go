@@ -30,8 +30,9 @@ type Adapter struct {
 	loginInProgress bool
 	lastConnectedAt time.Time
 
-	pairCh          chan string          // signaled with outcome by event handler during phone pair
+	pairCh          chan string           // signaled with outcome by event handler during phone pair
 	incomingHandler func(IncomingMessage) // Plan 04
+	incomingReceipt func(IncomingReceipt) // Plan 07c
 }
 
 // NewAdapter constructs an Adapter. The container must already be initialized
@@ -115,7 +116,50 @@ func (a *Adapter) onEvent(raw any) {
 		if h != nil {
 			h(incoming)
 		}
+	case *events.Receipt:
+		r, ok := translateReceipt(evt)
+		if !ok {
+			return
+		}
+		a.mu.Lock()
+		h := a.incomingReceipt
+		a.mu.Unlock()
+		if h != nil {
+			h(r)
+		}
 	}
+}
+
+// translateReceipt maps a *events.Receipt to our domain IncomingReceipt.
+// Returns false for receipt types we don't persist in Plan 07c
+// (sender, retry, inactive, peer_msg, server-error, read-self, played-self).
+//
+// Note: whatsmeow's ReceiptTypeDelivered is the empty string. We map it
+// explicitly to "delivered" for stability and clarity in the database.
+func translateReceipt(evt *events.Receipt) (IncomingReceipt, bool) {
+	var typeStr string
+	switch evt.Type {
+	case types.ReceiptTypeDelivered:
+		typeStr = "delivered"
+	case types.ReceiptTypeRead:
+		typeStr = "read"
+	case types.ReceiptTypePlayed:
+		typeStr = "played"
+	default:
+		return IncomingReceipt{}, false
+	}
+
+	ids := make([]string, len(evt.MessageIDs))
+	for i, id := range evt.MessageIDs {
+		ids[i] = string(id)
+	}
+	return IncomingReceipt{
+		MessageIDs: ids,
+		ChatJID:    evt.Chat.String(),
+		ReaderJID:  evt.Sender.String(),
+		Type:       typeStr,
+		Timestamp:  evt.Timestamp,
+	}, true
 }
 
 func (a *Adapter) signalPair(outcome string) {
@@ -685,6 +729,69 @@ func (a *Adapter) SendReaction(ctx context.Context, chatJID, originalMessageID, 
 		return fmt.Errorf("send reaction: %w", err)
 	}
 	return nil
+}
+
+// MarkRead sends a read receipt for messageID in chatJID from senderJID
+// at the given timestamp.
+func (a *Adapter) MarkRead(ctx context.Context, chatJID, senderJID, messageID string, timestamp time.Time) error {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return ErrNotConnected
+	}
+	client := a.client
+	a.mu.Unlock()
+
+	chat, err := types.ParseJID(chatJID)
+	if err != nil {
+		return fmt.Errorf("parse chat_jid: %w", err)
+	}
+	sender, err := types.ParseJID(senderJID)
+	if err != nil {
+		return fmt.Errorf("parse sender_jid: %w", err)
+	}
+	if err := client.MarkRead(ctx, []types.MessageID{messageID}, timestamp, chat, sender); err != nil {
+		return fmt.Errorf("mark read: %w", err)
+	}
+	return nil
+}
+
+// SendChatPresence sends a typing / paused presence update for chatJID.
+// state must be "composing" or "paused".
+func (a *Adapter) SendChatPresence(ctx context.Context, chatJID, state string) error {
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return ErrNotConnected
+	}
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return fmt.Errorf("parse chat_jid: %w", err)
+	}
+	var presence types.ChatPresence
+	switch state {
+	case "composing":
+		presence = types.ChatPresenceComposing
+	case "paused":
+		presence = types.ChatPresencePaused
+	default:
+		return fmt.Errorf("waclient: unsupported presence state %q", state)
+	}
+	if err := client.SendChatPresence(ctx, to, presence, types.ChatPresenceMediaText); err != nil {
+		return fmt.Errorf("send chat presence: %w", err)
+	}
+	return nil
+}
+
+// OnIncomingReceipt registers a handler invoked for each incoming read / delivery
+// receipt translated from whatsmeow *events.Receipt. Setting nil clears the handler.
+func (a *Adapter) OnIncomingReceipt(handler func(IncomingReceipt)) {
+	a.mu.Lock()
+	a.incomingReceipt = handler
+	a.mu.Unlock()
 }
 
 // compile-time interface check

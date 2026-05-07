@@ -67,6 +67,9 @@ func (f fakeLoginQRSvc) SendReaction(context.Context, string, string) error {
 func (f fakeLoginQRSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
+func (f fakeLoginQRSvc) MarkMessageRead(context.Context, string) error               { return nil }
+func (f fakeLoginQRSvc) SendTyping(context.Context, string, string) error            { return nil }
+func (f fakeLoginQRSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
 
 var _ service.Service = fakeLoginQRSvc{}
 

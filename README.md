@@ -12,8 +12,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 - **Plan 06 (media)** shipped: `POST /v1/media` (multipart/form-data) sends image + document outbound; `GET /v1/media/{message_id}` streams stored bytes; inbound media events auto-download in a background goroutine for all 5 kinds (image, video, audio, document, sticker). Files live under `data_dir/media/<sha[0:2]>/<sha>.<ext>` (content-addressable). Body cap configurable via `[http] max_body_bytes` (default 100 MiB).
 - **Plan 07a (replies + edits + deletes)** shipped: `POST /v1/messages` accepts `reply_to`; `PATCH /v1/messages/{id}` edits an outbound message (owner-only, 403 otherwise); `DELETE /v1/messages/{id}` revokes via whatsmeow's REVOKE ProtocolMessage. Inbound REVOKE / MESSAGE_EDIT events from whatsmeow update local rows (`deleted_at`, `body` + `edited_at`).
 - **Plan 07b (reactions)** shipped: `POST /v1/messages/{id}/reactions {emoji}` adds or clears (empty emoji) a reaction; `GET /v1/messages/{id}/reactions` lists all reactions for a message. New `reactions` table (FK-cascade with messages). Inbound reaction events auto-persist.
+- **Plan 07c (read receipts + typing)** shipped: `POST /v1/messages/{id}/read` marks a received message as read (decrements `chats.unread_count`); `POST /v1/chats/{jid}/typing {state}` sends `composing`/`paused` presence; `GET /v1/messages/{id}/receipts` lists who has acked the message. New `receipts` table populated from inbound `events.Receipt`.
 
-Read receipts + typing land in Plan 07c; SSE event stream in Plan 09. Video/audio/sticker outbound deferred to a sibling plan.
+SSE event stream lands in Plan 09. Video/audio/sticker outbound deferred to a sibling plan.
 
 ## Quick start
 

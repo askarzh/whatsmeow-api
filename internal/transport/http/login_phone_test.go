@@ -69,6 +69,9 @@ func (f *fakeLoginPhoneSvc) SendReaction(context.Context, string, string) error 
 func (f *fakeLoginPhoneSvc) ListReactions(context.Context, string) ([]store.Reaction, error) {
 	return nil, nil
 }
+func (f *fakeLoginPhoneSvc) MarkMessageRead(context.Context, string) error               { return nil }
+func (f *fakeLoginPhoneSvc) SendTyping(context.Context, string, string) error            { return nil }
+func (f *fakeLoginPhoneSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
 
 var _ service.Service = (*fakeLoginPhoneSvc)(nil)
 

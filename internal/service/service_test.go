@@ -19,16 +19,17 @@ import (
 )
 
 type fakeWA struct {
-	status        waclient.Status
-	resumeErr     error
-	loginQR       <-chan waclient.QREvent
-	loginQRErr    error
-	loginPhone    <-chan waclient.PairEvent
-	loginPhoneErr error
-	loginPhoneArg string
-	logoutErr     error
-	closed        bool
-	incoming      func(waclient.IncomingMessage)
+	status          waclient.Status
+	resumeErr       error
+	loginQR         <-chan waclient.QREvent
+	loginQRErr      error
+	loginPhone      <-chan waclient.PairEvent
+	loginPhoneErr   error
+	loginPhoneArg   string
+	logoutErr       error
+	closed          bool
+	incoming        func(waclient.IncomingMessage)
+	incomingReceipt func(waclient.IncomingReceipt)
 }
 
 func (f *fakeWA) Status() waclient.Status      { return f.status }
@@ -58,6 +59,9 @@ func (f *fakeWA) SendMedia(context.Context, string, string, string, string, stri
 	return waclient.Sent{}, nil
 }
 func (f *fakeWA) SendReaction(context.Context, string, string, string) error { return nil }
+func (f *fakeWA) MarkRead(context.Context, string, string, string, time.Time) error { return nil }
+func (f *fakeWA) SendChatPresence(context.Context, string, string) error  { return nil }
+func (f *fakeWA) OnIncomingReceipt(h func(waclient.IncomingReceipt))     { f.incomingReceipt = h }
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"
@@ -120,11 +124,12 @@ type memChats map[string]store.Chat
 type memMessages map[string]store.Message
 type memContacts map[string]store.Contact
 
-func newInMemoryBundle() (store.Bundle, *memChats, *memMessages, *memContacts, *reactionStore) {
+func newInMemoryBundle() (store.Bundle, *memChats, *memMessages, *memContacts, *reactionStore, *receiptStore) {
 	c := memChats{}
 	m := memMessages{}
 	co := memContacts{}
 	rs := &reactionStore{m: map[string]store.Reaction{}}
+	rcps := &receiptStore{m: map[string]store.Receipt{}}
 	return store.Bundle{
 		Chats:     &chatStore{m: c},
 		Messages:  &messageStore{m: m},
@@ -133,7 +138,8 @@ func newInMemoryBundle() (store.Bundle, *memChats, *memMessages, *memContacts, *
 		Events:    &eventsStore{},
 		KV:        &kvStore{m: map[string]string{}},
 		Reactions: rs,
-	}, &c, &m, &co, rs
+		Receipts:  rcps,
+	}, &c, &m, &co, rs, rcps
 }
 
 type chatStore struct{ m memChats }
@@ -359,6 +365,217 @@ func (s *reactionStore) ListByMessageID(_ context.Context, messageID string) ([]
 	return out, nil
 }
 
+type receiptStore struct {
+	mu sync.Mutex
+	m  map[string]store.Receipt // key: messageID + "|" + readerJID + "|" + type
+}
+
+func (s *receiptStore) Put(_ context.Context, r store.Receipt) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = map[string]store.Receipt{}
+	}
+	s.m[r.MessageID+"|"+r.ReaderJID+"|"+r.Type] = r
+	return nil
+}
+
+func (s *receiptStore) ListByMessageID(_ context.Context, messageID string) ([]store.Receipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]store.Receipt, 0)
+	for _, r := range s.m {
+		if r.MessageID == messageID {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ReaderJID != out[j].ReaderJID {
+			return out[i].ReaderJID < out[j].ReaderJID
+		}
+		return out[i].Type < out[j].Type
+	})
+	return out, nil
+}
+
+type readFakeWA struct {
+	fakeWA
+	gotMarkChat      string
+	gotMarkSender    string
+	gotMarkMsgID     string
+	markErr          error
+	gotPresenceChat  string
+	gotPresenceState string
+	presenceErr      error
+}
+
+func (f *readFakeWA) MarkRead(_ context.Context, chatJID, senderJID, messageID string, _ time.Time) error {
+	f.gotMarkChat = chatJID
+	f.gotMarkSender = senderJID
+	f.gotMarkMsgID = messageID
+	return f.markErr
+}
+func (f *readFakeWA) SendChatPresence(_ context.Context, chatJID, state string) error {
+	f.gotPresenceChat = chatJID
+	f.gotPresenceState = state
+	return f.presenceErr
+}
+
+func TestMarkMessageReadHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 5,
+	}
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "hi",
+	}
+
+	require.NoError(t, s.MarkMessageRead(ctx, "M1"))
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotMarkChat)
+	assert.Equal(t, "alice@s.whatsapp.net", wa.gotMarkSender)
+	assert.Equal(t, "M1", wa.gotMarkMsgID)
+
+	got, err := bundle.Chats.Get(ctx, "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 4, got.UnreadCount)
+}
+
+func TestMarkMessageReadDecrementClampsAtZero(t *testing.T) {
+	ctx := context.Background()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	(*chats)["c@s.whatsapp.net"] = store.Chat{
+		JID: "c@s.whatsapp.net", Kind: "user", UnreadCount: 0,
+	}
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "hi",
+	}
+
+	require.NoError(t, s.MarkMessageRead(ctx, "M1"))
+	got, err := bundle.Chats.Get(ctx, "c@s.whatsapp.net")
+	require.NoError(t, err)
+	assert.Equal(t, 0, got.UnreadCount, "must not go negative")
+}
+
+func TestMarkMessageReadNotFound(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.MarkMessageRead(context.Background(), "missing")
+	assert.True(t, errors.Is(err, store.ErrNotFound))
+}
+
+func TestMarkMessageReadNotConnected(t *testing.T) {
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{
+		fakeWA:  fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		markErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	(*msgs)["M1"] = store.Message{
+		ID: "M1", ChatJID: "c@s.whatsapp.net", SenderJID: "alice@s.whatsapp.net",
+		Timestamp: time.Unix(1000, 0).UTC(), Kind: "text", Body: "x",
+	}
+	err := s.MarkMessageRead(context.Background(), "M1")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestMarkMessageReadValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.MarkMessageRead(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSendTypingComposing(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NoError(t, s.SendTyping(context.Background(), "c@s.whatsapp.net", "composing"))
+	assert.Equal(t, "c@s.whatsapp.net", wa.gotPresenceChat)
+	assert.Equal(t, "composing", wa.gotPresenceState)
+}
+
+func TestSendTypingPaused(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NoError(t, s.SendTyping(context.Background(), "c@s.whatsapp.net", "paused"))
+	assert.Equal(t, "paused", wa.gotPresenceState)
+}
+
+func TestSendTypingValidationBadState(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendTyping(context.Background(), "c@s.whatsapp.net", "yelling")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSendTypingValidationEmptyChatJID(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendTyping(context.Background(), "", "composing")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
+func TestSendTypingNotConnected(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{
+		fakeWA:      fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
+		presenceErr: waclient.ErrNotConnected,
+	}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	err := s.SendTyping(context.Background(), "c@s.whatsapp.net", "composing")
+	assert.True(t, errors.Is(err, waclient.ErrNotConnected))
+}
+
+func TestListReceiptsHappyPath(t *testing.T) {
+	ctx := context.Background()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+
+	require.NoError(t, bundle.Receipts.Put(ctx, store.Receipt{
+		MessageID: "M1", ReaderJID: "alice@s.whatsapp.net", Type: "read", Timestamp: time.Unix(1000, 0).UTC(),
+	}))
+
+	got, err := s.ListReceipts(ctx, "M1")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "read", got[0].Type)
+}
+
+func TestListReceiptsValidation(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	jid := "me@s.whatsapp.net"
+	wa := &readFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
+	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	_, err := s.ListReceipts(context.Background(), "")
+	assert.True(t, errors.Is(err, service.ErrInvalidRequest))
+}
+
 type sendableFakeWA struct {
 	fakeWA
 	sentArgs   [3]string // [0]=chatJID, [1]=text, [2]=replyTo
@@ -397,7 +614,7 @@ func (f *mediaSenderFakeWA) SendMedia(_ context.Context, chatJID, kind, caption,
 
 func TestSendTextSuccess(t *testing.T) {
 	ctx := context.Background()
-	bundle, chats, msgs, _, _ := newInMemoryBundle()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
 
 	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
 	wa := &sendableFakeWA{
@@ -423,7 +640,7 @@ func TestSendTextSuccess(t *testing.T) {
 
 func TestSendTextValidation(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -444,7 +661,7 @@ func TestSendTextValidation(t *testing.T) {
 
 func TestSendTextNotConnected(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{sendErr: waclient.ErrNotConnected}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	_, err := s.SendText(ctx, "a@s.whatsapp.net", "hi", "")
@@ -495,7 +712,7 @@ func (f *failingMessageStore) Count(context.Context) (int, error)               
 
 func TestSendTextPreservesUnreadCount(t *testing.T) {
 	ctx := context.Background()
-	bundle, chats, _, _, _ := newInMemoryBundle()
+	bundle, chats, _, _, _, _ := newInMemoryBundle()
 	(*chats)["chat@s.whatsapp.net"] = store.Chat{
 		JID: "chat@s.whatsapp.net", Kind: "user", UnreadCount: 5,
 	}
@@ -513,7 +730,7 @@ func TestSendTextPreservesUnreadCount(t *testing.T) {
 }
 
 func TestHandleIncomingNewChat(t *testing.T) {
-	bundle, chats, msgs, contacts, _ := newInMemoryBundle()
+	bundle, chats, msgs, contacts, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil) // registers s.handleIncoming with wa
 
@@ -541,7 +758,7 @@ func TestHandleIncomingNewChat(t *testing.T) {
 }
 
 func TestHandleIncomingExistingChat(t *testing.T) {
-	bundle, chats, _, _, _ := newInMemoryBundle()
+	bundle, chats, _, _, _, _ := newInMemoryBundle()
 	(*chats)["chat@s.whatsapp.net"] = store.Chat{
 		JID: "chat@s.whatsapp.net", Kind: "user", UnreadCount: 3,
 	}
@@ -564,7 +781,7 @@ func TestHandleIncomingExistingChat(t *testing.T) {
 }
 
 func TestHandleIncomingNonText(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -586,7 +803,7 @@ func TestHandleIncomingNonText(t *testing.T) {
 }
 
 func TestHandleIncomingEmptyPushName(t *testing.T) {
-	bundle, _, _, contacts, _ := newInMemoryBundle()
+	bundle, _, _, contacts, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -606,7 +823,7 @@ func TestHandleIncomingEmptyPushName(t *testing.T) {
 }
 
 func TestListChatsValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -621,7 +838,7 @@ func TestListChatsValidation(t *testing.T) {
 
 func TestListChatsHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, chats, _, _, _ := newInMemoryBundle()
+	bundle, chats, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -636,7 +853,7 @@ func TestListChatsHappyPath(t *testing.T) {
 }
 
 func TestGetChatNotFound(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	_, err := s.GetChat(context.Background(), "missing@s.whatsapp.net")
@@ -645,7 +862,7 @@ func TestGetChatNotFound(t *testing.T) {
 
 func TestGetChatHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, chats, _, _, _ := newInMemoryBundle()
+	bundle, chats, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	(*chats)["x@s.whatsapp.net"] = store.Chat{JID: "x@s.whatsapp.net", Name: "X", Kind: "user"}
@@ -656,7 +873,7 @@ func TestGetChatHappyPath(t *testing.T) {
 }
 
 func TestListMessagesValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -673,7 +890,7 @@ func TestListMessagesValidation(t *testing.T) {
 
 func TestListMessagesHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	(*msgs)["M1"] = store.Message{ID: "M1", ChatJID: "x@s.whatsapp.net", Timestamp: time.Unix(100, 0).UTC(), Kind: "text", Body: "hi"}
@@ -685,7 +902,7 @@ func TestListMessagesHappyPath(t *testing.T) {
 }
 
 func TestSearchMessagesValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -702,7 +919,7 @@ func TestSearchMessagesValidation(t *testing.T) {
 
 func TestListContactsHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, _, contacts, _ := newInMemoryBundle()
+	bundle, _, _, contacts, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net", PushName: "A"}
@@ -713,7 +930,7 @@ func TestListContactsHappyPath(t *testing.T) {
 }
 
 func TestSearchContactsValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -724,7 +941,7 @@ func TestSearchContactsValidation(t *testing.T) {
 }
 
 func TestSearchContactsHappyPath(t *testing.T) {
-	bundle, _, _, contacts, _ := newInMemoryBundle()
+	bundle, _, _, contacts, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	(*contacts)["a@s.whatsapp.net"] = store.Contact{JID: "a@s.whatsapp.net", PushName: "Alice"}
@@ -738,7 +955,7 @@ func TestSearchContactsHappyPath(t *testing.T) {
 
 func TestSearchMessagesHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -753,7 +970,7 @@ func TestSearchMessagesHappyPath(t *testing.T) {
 
 func TestStats(t *testing.T) {
 	ctx := context.Background()
-	bundle, chats, msgs, contacts, _ := newInMemoryBundle()
+	bundle, chats, msgs, contacts, _, _ := newInMemoryBundle()
 	wa := &sendableFakeWA{}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
@@ -774,7 +991,7 @@ func TestStats(t *testing.T) {
 
 func TestSendMediaSuccess(t *testing.T) {
 	ctx := context.Background()
-	bundle, chats, msgs, _, _ := newInMemoryBundle()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
 	now := time.Date(2026, 5, 2, 12, 0, 0, 0, time.UTC)
 	wa := &mediaSenderFakeWA{
 		mediaResp: waclient.Sent{ID: "MID1", Timestamp: now, SenderJID: "me@s.whatsapp.net"},
@@ -805,7 +1022,7 @@ func TestSendMediaSuccess(t *testing.T) {
 }
 
 func TestSendMediaValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
 
@@ -830,7 +1047,7 @@ func TestSendMediaValidation(t *testing.T) {
 }
 
 func TestSendMediaNotConnected(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	wa := &mediaSenderFakeWA{mediaErr: waclient.ErrNotConnected}
 	s := service.New(wa, bundle, ms, nil)
@@ -842,7 +1059,7 @@ func TestSendMediaNotConnected(t *testing.T) {
 }
 
 func TestGetMediaRefHappyPath(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
 
@@ -857,7 +1074,7 @@ func TestGetMediaRefHappyPath(t *testing.T) {
 }
 
 func TestGetMediaRefNotFound(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
 	_, err := s.GetMediaRef(context.Background(), "missing")
@@ -865,7 +1082,7 @@ func TestGetMediaRefNotFound(t *testing.T) {
 }
 
 func TestGetMediaRefValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	s := service.New(&mediaSenderFakeWA{}, bundle, ms, nil)
 	_, err := s.GetMediaRef(context.Background(), "")
@@ -873,7 +1090,7 @@ func TestGetMediaRefValidation(t *testing.T) {
 }
 
 func TestHandleIncomingDownloadsMedia(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	wa := &mediaSenderFakeWA{}
 	_ = service.New(wa, bundle, ms, nil)
@@ -937,7 +1154,7 @@ func (f *editFakeWA) SendRevoke(_ context.Context, chatJID, messageID string) (w
 
 func TestEditMessageHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	myJID := jid
 	wa := &editFakeWA{
@@ -963,7 +1180,7 @@ func TestEditMessageHappyPath(t *testing.T) {
 }
 
 func TestEditMessageNotFound(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	myJID := "me@s.whatsapp.net"
 	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -972,7 +1189,7 @@ func TestEditMessageNotFound(t *testing.T) {
 }
 
 func TestEditMessageForbiddenWrongSender(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	myJID := "me@s.whatsapp.net"
 	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -985,7 +1202,7 @@ func TestEditMessageForbiddenWrongSender(t *testing.T) {
 }
 
 func TestEditMessageForbiddenAlreadyDeleted(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	myJID := "me@s.whatsapp.net"
 	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1000,7 +1217,7 @@ func TestEditMessageForbiddenAlreadyDeleted(t *testing.T) {
 }
 
 func TestEditMessageValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	myJID := "me@s.whatsapp.net"
 	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1017,7 +1234,7 @@ func TestEditMessageValidation(t *testing.T) {
 
 func TestDeleteMessageHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &editFakeWA{
 		fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
@@ -1034,7 +1251,7 @@ func TestDeleteMessageHappyPath(t *testing.T) {
 }
 
 func TestDeleteMessageNotFound(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	myJID := "me@s.whatsapp.net"
 	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1043,7 +1260,7 @@ func TestDeleteMessageNotFound(t *testing.T) {
 }
 
 func TestDeleteMessageForbidden(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	myJID := "me@s.whatsapp.net"
 	wa := &editFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &myJID}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1056,7 +1273,7 @@ func TestDeleteMessageForbidden(t *testing.T) {
 }
 
 func TestHandleIncomingDownloadFailureLogged(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	ms := mediastore.New(t.TempDir())
 	wa := &mediaSenderFakeWA{}
 	_ = service.New(wa, bundle, ms, nil)
@@ -1088,7 +1305,7 @@ func TestHandleIncomingDownloadFailureLogged(t *testing.T) {
 }
 
 func TestHandleIncomingRevoke(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	wa := &mediaSenderFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1114,7 +1331,7 @@ func TestHandleIncomingRevoke(t *testing.T) {
 }
 
 func TestHandleIncomingEditUpdatesBody(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	wa := &mediaSenderFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1143,7 +1360,7 @@ func TestHandleIncomingEditUpdatesBody(t *testing.T) {
 }
 
 func TestHandleIncomingEditUnknownIDLogged(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &mediaSenderFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1165,7 +1382,7 @@ func TestHandleIncomingEditUnknownIDLogged(t *testing.T) {
 }
 
 func TestHandleIncomingRevokeDoesNotBumpUnread(t *testing.T) {
-	bundle, chats, msgs, _, _ := newInMemoryBundle()
+	bundle, chats, msgs, _, _, _ := newInMemoryBundle()
 	wa := &mediaSenderFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1206,7 +1423,7 @@ func (f *reactionFakeWA) SendReaction(_ context.Context, chatJID, originalMessag
 
 func TestSendReactionHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, msgs, _, rs := newInMemoryBundle()
+	bundle, _, msgs, _, rs, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1232,7 +1449,7 @@ func TestSendReactionHappyPath(t *testing.T) {
 
 func TestSendReactionClear(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1255,7 +1472,7 @@ func TestSendReactionClear(t *testing.T) {
 }
 
 func TestSendReactionNotFound(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1264,7 +1481,7 @@ func TestSendReactionNotFound(t *testing.T) {
 }
 
 func TestSendReactionNotConnected(t *testing.T) {
-	bundle, _, msgs, _, _ := newInMemoryBundle()
+	bundle, _, msgs, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{
 		fakeWA:      fakeWA{status: waclient.Status{Connected: true, JID: &jid}},
@@ -1285,7 +1502,7 @@ func TestSendReactionNotConnected(t *testing.T) {
 }
 
 func TestSendReactionValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1295,7 +1512,7 @@ func TestSendReactionValidation(t *testing.T) {
 
 func TestListReactionsHappyPath(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1311,7 +1528,7 @@ func TestListReactionsHappyPath(t *testing.T) {
 }
 
 func TestListReactionsValidation(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	jid := "me@s.whatsapp.net"
 	wa := &reactionFakeWA{fakeWA: fakeWA{status: waclient.Status{Connected: true, JID: &jid}}}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
@@ -1320,7 +1537,7 @@ func TestListReactionsValidation(t *testing.T) {
 }
 
 func TestHandleIncomingReactionPut(t *testing.T) {
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &reactionFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1344,7 +1561,7 @@ func TestHandleIncomingReactionPut(t *testing.T) {
 
 func TestHandleIncomingReactionClear(t *testing.T) {
 	ctx := context.Background()
-	bundle, _, _, _, _ := newInMemoryBundle()
+	bundle, _, _, _, _, _ := newInMemoryBundle()
 	wa := &reactionFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1366,7 +1583,7 @@ func TestHandleIncomingReactionClear(t *testing.T) {
 }
 
 func TestHandleIncomingReactionDoesNotBumpUnread(t *testing.T) {
-	bundle, chats, _, _, _ := newInMemoryBundle()
+	bundle, chats, _, _, _, _ := newInMemoryBundle()
 	wa := &reactionFakeWA{}
 	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 	require.NotNil(t, wa.incoming)
@@ -1385,4 +1602,68 @@ func TestHandleIncomingReactionDoesNotBumpUnread(t *testing.T) {
 	chat, err := bundle.Chats.Get(context.Background(), "c@s.whatsapp.net")
 	require.NoError(t, err)
 	assert.Equal(t, 5, chat.UnreadCount, "reaction must not bump unread_count")
+}
+
+func TestHandleReceiptPersistsAll(t *testing.T) {
+	bundle, _, _, _, _, rcps := newInMemoryBundle()
+	wa := &fakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incomingReceipt)
+
+	ts := time.Unix(5000, 0).UTC()
+	wa.incomingReceipt(waclient.IncomingReceipt{
+		MessageIDs: []string{"M1", "M2", "M3"},
+		ChatJID:    "c@s.whatsapp.net",
+		ReaderJID:  "alice@s.whatsapp.net",
+		Type:       "read",
+		Timestamp:  ts,
+	})
+
+	rcps.mu.Lock()
+	defer rcps.mu.Unlock()
+	assert.Len(t, rcps.m, 3, "expected 3 receipt rows, one per message ID")
+	for _, id := range []string{"M1", "M2", "M3"} {
+		key := id + "|alice@s.whatsapp.net|read"
+		r, ok := rcps.m[key]
+		require.True(t, ok, "missing receipt for %s", id)
+		assert.Equal(t, id, r.MessageID)
+		assert.Equal(t, "alice@s.whatsapp.net", r.ReaderJID)
+		assert.Equal(t, "read", r.Type)
+		assert.Equal(t, ts, r.Timestamp)
+	}
+}
+
+func TestHandleReceiptUpsert(t *testing.T) {
+	bundle, _, _, _, _, rcps := newInMemoryBundle()
+	wa := &fakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incomingReceipt)
+
+	ts1 := time.Unix(1000, 0).UTC()
+	ts2 := time.Unix(2000, 0).UTC()
+
+	// First receipt event.
+	wa.incomingReceipt(waclient.IncomingReceipt{
+		MessageIDs: []string{"M1"},
+		ChatJID:    "c@s.whatsapp.net",
+		ReaderJID:  "alice@s.whatsapp.net",
+		Type:       "read",
+		Timestamp:  ts1,
+	})
+	// Second receipt event for the same (MessageID, ReaderJID, Type) key.
+	wa.incomingReceipt(waclient.IncomingReceipt{
+		MessageIDs: []string{"M1"},
+		ChatJID:    "c@s.whatsapp.net",
+		ReaderJID:  "alice@s.whatsapp.net",
+		Type:       "read",
+		Timestamp:  ts2,
+	})
+
+	rcps.mu.Lock()
+	defer rcps.mu.Unlock()
+	assert.Len(t, rcps.m, 1, "upsert: same key must result in exactly 1 row")
+	key := "M1|alice@s.whatsapp.net|read"
+	r, ok := rcps.m[key]
+	require.True(t, ok)
+	assert.Equal(t, ts2, r.Timestamp, "latest timestamp must win")
 }

@@ -70,6 +70,11 @@ type Service interface {
 	// Plan 07b
 	SendReaction(ctx context.Context, messageID, emoji string) error
 	ListReactions(ctx context.Context, messageID string) ([]store.Reaction, error)
+
+	// Plan 07c
+	MarkMessageRead(ctx context.Context, messageID string) error
+	SendTyping(ctx context.Context, chatJID, state string) error
+	ListReceipts(ctx context.Context, messageID string) ([]store.Receipt, error)
 }
 
 type svc struct {
@@ -86,6 +91,7 @@ func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store
 	}
 	s := &svc{wa: wa, bundle: bundle, mediaStore: mediaStore, logger: logger}
 	wa.OnIncomingMessage(s.handleIncoming)
+	wa.OnIncomingReceipt(s.handleReceipt) // Plan 07c
 	return s
 }
 
@@ -541,4 +547,56 @@ func (s *svc) ListReactions(ctx context.Context, messageID string) ([]store.Reac
 		return nil, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
 	}
 	return s.bundle.Reactions.ListByMessageID(ctx, messageID)
+}
+
+func (s *svc) MarkMessageRead(ctx context.Context, messageID string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+
+	existing, err := s.bundle.Messages.Get(ctx, messageID)
+	if err != nil {
+		return err
+	}
+
+	if err := s.wa.MarkRead(ctx, existing.ChatJID, existing.SenderJID, messageID, time.Now()); err != nil {
+		return err
+	}
+
+	chat, err := s.bundle.Chats.Get(ctx, existing.ChatJID)
+	if err == nil && chat.UnreadCount > 0 {
+		chat.UnreadCount--
+		if err := s.bundle.Chats.Put(ctx, chat); err != nil {
+			s.logger.Warn("decrement unread on mark-read failed", "chat_jid", existing.ChatJID, "err", err)
+		}
+	}
+	return nil
+}
+
+func (s *svc) SendTyping(ctx context.Context, chatJID, state string) error {
+	if strings.TrimSpace(chatJID) == "" {
+		return fmt.Errorf("%w: chat_jid is required", ErrInvalidRequest)
+	}
+	if state != "composing" && state != "paused" {
+		return fmt.Errorf("%w: state must be composing or paused", ErrInvalidRequest)
+	}
+	return s.wa.SendChatPresence(ctx, chatJID, state)
+}
+
+func (s *svc) ListReceipts(ctx context.Context, messageID string) ([]store.Receipt, error) {
+	if strings.TrimSpace(messageID) == "" {
+		return nil, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
+	}
+	return s.bundle.Receipts.ListByMessageID(ctx, messageID)
+}
+
+func (s *svc) handleReceipt(r waclient.IncomingReceipt) {
+	ctx := context.Background()
+	for _, id := range r.MessageIDs {
+		if err := s.bundle.Receipts.Put(ctx, store.Receipt{
+			MessageID: id, ReaderJID: r.ReaderJID, Type: r.Type, Timestamp: r.Timestamp,
+		}); err != nil {
+			s.logger.Warn("persist receipt failed", "id", id, "type", r.Type, "err", err)
+		}
+	}
 }
