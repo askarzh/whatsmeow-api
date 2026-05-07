@@ -1743,10 +1743,10 @@ func TestCreateGroupHappyPath(t *testing.T) {
 	}
 	s := service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
 
-	got, err := s.CreateGroup(ctx, "Test", []string{"alice@s.whatsapp.net"})
+	got, err := s.CreateGroup(ctx, "  Test  ", []string{"alice@s.whatsapp.net"})
 	require.NoError(t, err)
 	assert.Equal(t, "g1@g.us", got.JID)
-	assert.Equal(t, "Test", wa.gotCreateName)
+	assert.Equal(t, "Test", wa.gotCreateName, "name should be trimmed before reaching wa")
 	assert.Equal(t, []string{"alice@s.whatsapp.net"}, wa.gotCreateParts)
 
 	// Chat row upserted with kind=group.
