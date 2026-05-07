@@ -82,6 +82,9 @@ func (f *fakeReactionsSvc) ListReactions(_ context.Context, messageID string) ([
 func (f *fakeReactionsSvc) MarkMessageRead(context.Context, string) error               { return nil }
 func (f *fakeReactionsSvc) SendTyping(context.Context, string, string) error            { return nil }
 func (f *fakeReactionsSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f *fakeReactionsSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
 
 var _ service.Service = (*fakeReactionsSvc)(nil)
 

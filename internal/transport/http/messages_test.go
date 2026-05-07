@@ -103,6 +103,9 @@ func (f *fakeSendSvc) ListReactions(context.Context, string) ([]store.Reaction, 
 func (f *fakeSendSvc) MarkMessageRead(context.Context, string) error               { return nil }
 func (f *fakeSendSvc) SendTyping(context.Context, string, string) error            { return nil }
 func (f *fakeSendSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f *fakeSendSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
 
 var _ service.Service = (*fakeSendSvc)(nil)
 

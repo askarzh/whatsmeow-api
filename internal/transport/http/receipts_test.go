@@ -89,6 +89,9 @@ func (f *fakeReceiptsSvc) ListReceipts(_ context.Context, messageID string) ([]s
 	f.gotListID = messageID
 	return f.listResp, f.listErr
 }
+func (f *fakeReceiptsSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
 
 var _ service.Service = (*fakeReceiptsSvc)(nil)
 

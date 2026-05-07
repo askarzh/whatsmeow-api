@@ -70,6 +70,9 @@ func (f fakeLoginQRSvc) ListReactions(context.Context, string) ([]store.Reaction
 func (f fakeLoginQRSvc) MarkMessageRead(context.Context, string) error               { return nil }
 func (f fakeLoginQRSvc) SendTyping(context.Context, string, string) error            { return nil }
 func (f fakeLoginQRSvc) ListReceipts(context.Context, string) ([]store.Receipt, error) { return nil, nil }
+func (f fakeLoginQRSvc) CreateGroup(context.Context, string, []string) (waclient.Group, error) {
+	return waclient.Group{}, nil
+}
 
 var _ service.Service = fakeLoginQRSvc{}
 
