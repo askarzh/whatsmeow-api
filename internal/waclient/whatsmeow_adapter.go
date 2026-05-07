@@ -3,7 +3,6 @@ package waclient
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -546,21 +545,67 @@ func optionalString(s string) *string {
 	return proto.String(s)
 }
 
-// SendEdit is implemented in Plan 07a Task 3.
+// SendEdit sends a MESSAGE_EDIT ProtocolMessage targeting the given message id.
+// Only owner-edits succeed (whatsmeow rejects edits to messages we didn't send).
 func (a *Adapter) SendEdit(ctx context.Context, chatJID, originalMessageID, newText string) (Sent, error) {
-	_ = ctx
-	_ = chatJID
-	_ = originalMessageID
-	_ = newText
-	return Sent{}, errors.New("waclient: SendEdit not yet implemented")
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	msg := client.BuildEdit(to, originalMessageID, &waE2E.Message{
+		Conversation: proto.String(newText),
+	})
+
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send edit: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
 }
 
-// SendRevoke is implemented in Plan 07a Task 3.
+// SendRevoke sends a REVOKE ProtocolMessage targeting the given message id.
+// Passing types.EmptyJID as the sender revokes one of our own messages.
 func (a *Adapter) SendRevoke(ctx context.Context, chatJID, originalMessageID string) (Sent, error) {
-	_ = ctx
-	_ = chatJID
-	_ = originalMessageID
-	return Sent{}, errors.New("waclient: SendRevoke not yet implemented")
+	a.mu.Lock()
+	if a.client == nil || !a.client.IsConnected() || !a.client.IsLoggedIn() {
+		a.mu.Unlock()
+		return Sent{}, ErrNotConnected
+	}
+	senderJID := a.client.Store.ID.String()
+	client := a.client
+	a.mu.Unlock()
+
+	to, err := types.ParseJID(chatJID)
+	if err != nil {
+		return Sent{}, fmt.Errorf("parse chat_jid: %w", err)
+	}
+
+	// types.EmptyJID signals "my own message" to BuildRevoke.
+	msg := client.BuildRevoke(to, types.EmptyJID, originalMessageID)
+
+	resp, err := client.SendMessage(ctx, to, msg)
+	if err != nil {
+		return Sent{}, fmt.Errorf("send revoke: %w", err)
+	}
+	return Sent{
+		ID:        resp.ID,
+		Timestamp: resp.Timestamp,
+		SenderJID: senderJID,
+	}, nil
 }
 
 // compile-time interface check
