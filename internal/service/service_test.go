@@ -1603,3 +1603,67 @@ func TestHandleIncomingReactionDoesNotBumpUnread(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 5, chat.UnreadCount, "reaction must not bump unread_count")
 }
+
+func TestHandleReceiptPersistsAll(t *testing.T) {
+	bundle, _, _, _, _, rcps := newInMemoryBundle()
+	wa := &fakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incomingReceipt)
+
+	ts := time.Unix(5000, 0).UTC()
+	wa.incomingReceipt(waclient.IncomingReceipt{
+		MessageIDs: []string{"M1", "M2", "M3"},
+		ChatJID:    "c@s.whatsapp.net",
+		ReaderJID:  "alice@s.whatsapp.net",
+		Type:       "read",
+		Timestamp:  ts,
+	})
+
+	rcps.mu.Lock()
+	defer rcps.mu.Unlock()
+	assert.Len(t, rcps.m, 3, "expected 3 receipt rows, one per message ID")
+	for _, id := range []string{"M1", "M2", "M3"} {
+		key := id + "|alice@s.whatsapp.net|read"
+		r, ok := rcps.m[key]
+		require.True(t, ok, "missing receipt for %s", id)
+		assert.Equal(t, id, r.MessageID)
+		assert.Equal(t, "alice@s.whatsapp.net", r.ReaderJID)
+		assert.Equal(t, "read", r.Type)
+		assert.Equal(t, ts, r.Timestamp)
+	}
+}
+
+func TestHandleReceiptUpsert(t *testing.T) {
+	bundle, _, _, _, _, rcps := newInMemoryBundle()
+	wa := &fakeWA{}
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), nil)
+	require.NotNil(t, wa.incomingReceipt)
+
+	ts1 := time.Unix(1000, 0).UTC()
+	ts2 := time.Unix(2000, 0).UTC()
+
+	// First receipt event.
+	wa.incomingReceipt(waclient.IncomingReceipt{
+		MessageIDs: []string{"M1"},
+		ChatJID:    "c@s.whatsapp.net",
+		ReaderJID:  "alice@s.whatsapp.net",
+		Type:       "read",
+		Timestamp:  ts1,
+	})
+	// Second receipt event for the same (MessageID, ReaderJID, Type) key.
+	wa.incomingReceipt(waclient.IncomingReceipt{
+		MessageIDs: []string{"M1"},
+		ChatJID:    "c@s.whatsapp.net",
+		ReaderJID:  "alice@s.whatsapp.net",
+		Type:       "read",
+		Timestamp:  ts2,
+	})
+
+	rcps.mu.Lock()
+	defer rcps.mu.Unlock()
+	assert.Len(t, rcps.m, 1, "upsert: same key must result in exactly 1 row")
+	key := "M1|alice@s.whatsapp.net|read"
+	r, ok := rcps.m[key]
+	require.True(t, ok)
+	assert.Equal(t, ts2, r.Timestamp, "latest timestamp must win")
+}

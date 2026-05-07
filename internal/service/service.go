@@ -91,6 +91,7 @@ func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store
 	}
 	s := &svc{wa: wa, bundle: bundle, mediaStore: mediaStore, logger: logger}
 	wa.OnIncomingMessage(s.handleIncoming)
+	wa.OnIncomingReceipt(s.handleReceipt) // Plan 07c
 	return s
 }
 
@@ -587,4 +588,15 @@ func (s *svc) ListReceipts(ctx context.Context, messageID string) ([]store.Recei
 		return nil, fmt.Errorf("%w: message_id is required", ErrInvalidRequest)
 	}
 	return s.bundle.Receipts.ListByMessageID(ctx, messageID)
+}
+
+func (s *svc) handleReceipt(r waclient.IncomingReceipt) {
+	ctx := context.Background()
+	for _, id := range r.MessageIDs {
+		if err := s.bundle.Receipts.Put(ctx, store.Receipt{
+			MessageID: id, ReaderJID: r.ReaderJID, Type: r.Type, Timestamp: r.Timestamp,
+		}); err != nil {
+			s.logger.Warn("persist receipt failed", "id", id, "type", r.Type, "err", err)
+		}
+	}
 }
