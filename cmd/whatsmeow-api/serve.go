@@ -14,6 +14,7 @@ import (
 	"github.com/askarzh/whatsmeow-api/internal/service"
 	sqlitestore "github.com/askarzh/whatsmeow-api/internal/store/sqlite"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
+	"github.com/askarzh/whatsmeow-api/internal/transport/sse"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 	"github.com/spf13/cobra"
 )
@@ -83,17 +84,19 @@ func serveCmd() *cobra.Command {
 
 			mediaDir := filepath.Join(cfg.DataDir, "media")
 			mediaSt := mediastore.New(mediaDir)
-			svc := service.New(wa, appDB.Bundle(), mediaSt, nil, logger)
+			broadcaster := sse.New(cfg.HTTP.SSESubscriberBuffer)
+			svc := service.New(wa, appDB.Bundle(), mediaSt, broadcaster, logger)
 
 			if err := wa.Resume(ctx); err != nil {
 				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)
 			}
 
 			srv := httpapi.NewServer(httpapi.Deps{
-				Config:  cfg,
-				Logger:  logger,
-				Service: svc,
-				Store:   appDB.Bundle(),
+				Config:      cfg,
+				Logger:      logger,
+				Service:     svc,
+				Store:       appDB.Bundle(),
+				Broadcaster: broadcaster,
 			})
 
 			logger.Info("server starting", "bind", cfg.Server.Bind, "port", cfg.Server.Port)

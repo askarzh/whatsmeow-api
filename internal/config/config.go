@@ -54,23 +54,27 @@ type MetricsConfig struct {
 }
 
 type HTTPConfig struct {
-	MaxBodyBytes int64 `koanf:"max_body_bytes"`
+	MaxBodyBytes        int64 `koanf:"max_body_bytes"`
+	SSEHeartbeatSeconds int   `koanf:"sse_heartbeat_seconds"`
+	SSESubscriberBuffer int   `koanf:"sse_subscriber_buffer"`
 }
 
 func defaults() map[string]any {
 	return map[string]any{
-		"data_dir":               "./data",
-		"server.bind":            "127.0.0.1",
-		"server.port":            8080,
-		"auth.token":             "",
-		"storage.backend":        "sqlite",
-		"storage.sqlite_path":    "./data/whatsmeow-api.db",
-		"storage.postgres_dsn":   "",
-		"log.level":              "info",
-		"log.format":             "text",
-		"events.retention_hours": 24,
-		"metrics.enabled":        false,
-		"http.max_body_bytes":    int64(100 * 1024 * 1024),
+		"data_dir":                   "./data",
+		"server.bind":                "127.0.0.1",
+		"server.port":                8080,
+		"auth.token":                 "",
+		"storage.backend":            "sqlite",
+		"storage.sqlite_path":        "./data/whatsmeow-api.db",
+		"storage.postgres_dsn":       "",
+		"log.level":                  "info",
+		"log.format":                 "text",
+		"events.retention_hours":     24,
+		"metrics.enabled":            false,
+		"http.max_body_bytes":        int64(100 * 1024 * 1024),
+		"http.sse_heartbeat_seconds": 25,
+		"http.sse_subscriber_buffer": 256,
 	}
 }
 

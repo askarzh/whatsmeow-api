@@ -8,16 +8,18 @@ import (
 	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/askarzh/whatsmeow-api/internal/service"
 	"github.com/askarzh/whatsmeow-api/internal/store"
+	"github.com/askarzh/whatsmeow-api/internal/transport/sse"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
 // Deps is the bundle of values the router depends on.
 type Deps struct {
-	Config  config.Config
-	Logger  *slog.Logger
-	Service service.Service
-	Store   store.Bundle
+	Config      config.Config
+	Logger      *slog.Logger
+	Service     service.Service
+	Store       store.Bundle
+	Broadcaster *sse.Broadcaster
 }
 
 func NewRouter(d Deps) http.Handler {
@@ -62,6 +64,8 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodGet, "/groups/{jid}/members", ListGroupMembersHandler(d.Service))
 			r.Method(http.MethodPost, "/groups/{jid}/members", UpdateGroupMembersHandler(d.Service))
 			r.Method(http.MethodDelete, "/groups/{jid}/membership", LeaveGroupHandler(d.Service))
+			r.Method(http.MethodGet, "/events",
+				EventsHandler(d.Service, d.Store.Events, d.Broadcaster, d.Config.HTTP.SSEHeartbeatSeconds))
 		})
 	})
 
