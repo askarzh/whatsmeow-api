@@ -83,7 +83,7 @@ func serveCmd() *cobra.Command {
 
 			mediaDir := filepath.Join(cfg.DataDir, "media")
 			mediaSt := mediastore.New(mediaDir)
-			svc := service.New(wa, appDB.Bundle(), mediaSt, logger)
+			svc := service.New(wa, appDB.Bundle(), mediaSt, nil, logger)
 
 			if err := wa.Resume(ctx); err != nil {
 				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)

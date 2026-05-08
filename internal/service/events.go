@@ -30,8 +30,10 @@ func NewEmitter(log store.EventsLog, broadcaster *sse.Broadcaster, logger *slog.
 }
 
 // Emit marshals payload to JSON, appends a row to events_log, and on success
-// publishes to the broadcaster. Append failures are logged at WARN and the
-// publish is skipped so persistence and broadcast stay aligned.
+// publishes to the broadcaster. If payload is already a []byte it is treated
+// as pre-marshaled JSON (the Build*Payload helpers return that shape). Append
+// failures are logged at WARN and the publish is skipped so persistence and
+// broadcast stay aligned.
 func (e *Emitter) Emit(ctx context.Context, kind string, payload any) {
 	if e == nil || e.log == nil {
 		return
@@ -39,10 +41,19 @@ func (e *Emitter) Emit(ctx context.Context, kind string, payload any) {
 	if e.logger == nil {
 		e.logger = slog.Default()
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		e.logger.Warn("emit: marshal failed", "kind", kind, "err", err)
-		return
+	var body []byte
+	switch p := payload.(type) {
+	case []byte:
+		body = p
+	case json.RawMessage:
+		body = []byte(p)
+	default:
+		var err error
+		body, err = json.Marshal(payload)
+		if err != nil {
+			e.logger.Warn("emit: marshal failed", "kind", kind, "err", err)
+			return
+		}
 	}
 	seq, err := e.log.Append(ctx, store.EventLogEntry{
 		Type:    kind,
