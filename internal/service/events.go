@@ -36,6 +36,9 @@ func (e *Emitter) Emit(ctx context.Context, kind string, payload any) {
 	if e == nil || e.log == nil {
 		return
 	}
+	if e.logger == nil {
+		e.logger = slog.Default()
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		e.logger.Warn("emit: marshal failed", "kind", kind, "err", err)
@@ -143,7 +146,7 @@ func BuildTypingReceivedPayload(chatJID, senderJID, state string, ts time.Time) 
 }
 
 // BuildConnectionStatePayload builds the connection.state JSON. Reason is
-// included only when connected is false.
+// included only when connected is false and reason is non-empty.
 func BuildConnectionStatePayload(s waclient.Status, reason string) []byte {
 	out := map[string]any{
 		"v":         payloadVersion,
