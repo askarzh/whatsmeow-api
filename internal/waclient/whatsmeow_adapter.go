@@ -30,9 +30,10 @@ type Adapter struct {
 	loginInProgress bool
 	lastConnectedAt time.Time
 
-	pairCh          chan string           // signaled with outcome by event handler during phone pair
-	incomingHandler func(IncomingMessage) // Plan 04
-	incomingReceipt func(IncomingReceipt) // Plan 07c
+	pairCh                 chan string                // signaled with outcome by event handler during phone pair
+	incomingHandler        func(IncomingMessage)      // Plan 04
+	incomingReceipt        func(IncomingReceipt)      // Plan 07c
+	connectionStateHandler func(ConnectionStateEvent) // Plan 09
 }
 
 // NewAdapter constructs an Adapter. The container must already be initialized
@@ -95,10 +96,17 @@ func (a *Adapter) onEvent(raw any) {
 		a.lastConnectedAt = time.Now()
 		a.mu.Unlock()
 		a.logger.Info("wa connected")
+		a.fireConnectionState(ConnectionStateEvent{Status: a.Status(), Reason: ""})
 	case *events.Disconnected:
 		a.logger.Info("wa disconnected")
+		a.fireConnectionState(ConnectionStateEvent{Status: Status{Connected: false}, Reason: "disconnect"})
 	case *events.LoggedOut:
 		a.logger.Info("wa logged out", "reason", evt.Reason.String())
+		a.fireConnectionState(ConnectionStateEvent{Status: Status{Connected: false}, Reason: "logout"})
+		// TODO Plan 09 follow-up: surface "login_failed" — whatsmeow signals
+		// connect failures via *events.LoggedOut with OnConnect=true rather than
+		// a dedicated event, so distinguishing requires inspecting evt.OnConnect
+		// and evt.Reason; the spec lists login_failed as a possible reason.
 	case *events.PairSuccess:
 		a.logger.Info("wa pair success", "jid", evt.ID.String())
 		a.signalPair("success")
@@ -792,6 +800,26 @@ func (a *Adapter) OnIncomingReceipt(handler func(IncomingReceipt)) {
 	a.mu.Lock()
 	a.incomingReceipt = handler
 	a.mu.Unlock()
+}
+
+// OnConnectionState registers a handler invoked on every whatsmeow
+// connection-state transition (connected, disconnected, logged-out). Setting
+// nil clears the handler. Calling this twice replaces the previous handler.
+func (a *Adapter) OnConnectionState(handler func(ConnectionStateEvent)) {
+	a.mu.Lock()
+	a.connectionStateHandler = handler
+	a.mu.Unlock()
+}
+
+// fireConnectionState snapshots the registered handler under lock and invokes
+// it without holding the lock.
+func (a *Adapter) fireConnectionState(ev ConnectionStateEvent) {
+	a.mu.Lock()
+	h := a.connectionStateHandler
+	a.mu.Unlock()
+	if h != nil {
+		h(ev)
+	}
 }
 
 // CreateGroup creates a new group with the given name and participants. The

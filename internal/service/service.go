@@ -14,6 +14,7 @@ import (
 
 	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/store"
+	"github.com/askarzh/whatsmeow-api/internal/transport/sse"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
 
@@ -89,16 +90,31 @@ type svc struct {
 	bundle     store.Bundle
 	mediaStore *mediastore.Store
 	logger     *slog.Logger
+	emitter    *Emitter
 }
 
 // New constructs a Service backed by the given WAClient and store bundle.
-func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store, logger *slog.Logger) Service {
+// broadcaster may be nil — the emitter still appends to events_log but won't
+// publish to live subscribers.
+func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store, broadcaster *sse.Broadcaster, logger *slog.Logger) Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &svc{wa: wa, bundle: bundle, mediaStore: mediaStore, logger: logger}
+	s := &svc{
+		wa:         wa,
+		bundle:     bundle,
+		mediaStore: mediaStore,
+		logger:     logger,
+		emitter:    NewEmitter(bundle.Events, broadcaster, logger),
+	}
 	wa.OnIncomingMessage(s.handleIncoming)
 	wa.OnIncomingReceipt(s.handleReceipt) // Plan 07c
+	wa.OnConnectionState(func(ev waclient.ConnectionStateEvent) {
+		s.emitter.Emit(context.Background(), "connection.state",
+			BuildConnectionStatePayload(ev.Status, ev.Reason))
+	})
+	// TODO Plan 09 follow-up: wire inbound typing presence (composing/paused)
+	// into a handleTyping path that emits typing.received.
 	return s
 }
 
@@ -254,9 +270,11 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 
 	// Plan 07b: route reactions BEFORE revoke/edit/normal paths.
 	if msg.ReactionTargetID != "" {
+		persisted := true
 		if msg.ReactionEmoji == "" {
 			if err := s.bundle.Reactions.Delete(ctx, msg.ReactionTargetID, msg.SenderJID); err != nil {
 				s.logger.Warn("clear reaction on incoming failed", "target", msg.ReactionTargetID, "err", err)
+				persisted = false
 			}
 		} else {
 			if err := s.bundle.Reactions.Put(ctx, store.Reaction{
@@ -266,7 +284,12 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 				Timestamp: msg.Timestamp,
 			}); err != nil {
 				s.logger.Warn("persist reaction on incoming failed", "target", msg.ReactionTargetID, "err", err)
+				persisted = false
 			}
+		}
+		if persisted {
+			s.emitter.Emit(ctx, "reaction.received", BuildReactionReceivedPayload(
+				msg.ReactionTargetID, msg.SenderJID, msg.ReactionEmoji, msg.Timestamp))
 		}
 		return
 	}
@@ -275,7 +298,10 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 	if msg.RevokeOfID != "" {
 		if err := s.bundle.Messages.SoftDelete(ctx, msg.RevokeOfID, msg.Timestamp); err != nil {
 			s.logger.Warn("soft-delete on incoming revoke failed", "id", msg.RevokeOfID, "err", err)
+			return
 		}
+		s.emitter.Emit(ctx, "message.deleted", BuildMessageDeletedPayload(
+			msg.RevokeOfID, msg.ChatJID, time.Now().UTC()))
 		return
 	}
 	if msg.EditOfID != "" {
@@ -289,7 +315,10 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 		existing.EditedAt = &t
 		if err := s.bundle.Messages.Put(ctx, existing); err != nil {
 			s.logger.Warn("persist incoming edit failed", "id", msg.EditOfID, "err", err)
+			return
 		}
+		s.emitter.Emit(ctx, "message.edited", BuildMessageEditedPayload(
+			msg.EditOfID, msg.ChatJID, msg.Body, time.Now().UTC()))
 		return
 	}
 
@@ -325,11 +354,18 @@ func (s *svc) handleIncoming(msg waclient.IncomingMessage) {
 		Body:      msg.Body,
 	}); err != nil {
 		s.logger.Warn("persist incoming message failed", "id", msg.ID, "err", err)
+		return
 	}
 
+	// For media kinds, the actual MediaRef is populated asynchronously in
+	// downloadAndPersistMedia; we don't block the inbound handler waiting for
+	// the download. Emit message.received now with a zero-value MediaRef so
+	// subscribers see the message immediately. A later plan can introduce a
+	// dedicated media.persisted event if subscribers need the SHA / path.
 	if msg.MediaDownloader != nil {
 		go s.downloadAndPersistMedia(msg.ID, msg.MediaDownloader)
 	}
+	s.emitter.Emit(ctx, "message.received", BuildMessageReceivedPayload(msg, store.MediaRef{}))
 }
 
 // downloadAndPersistMedia runs in a per-message goroutine: it calls the
@@ -599,12 +635,18 @@ func (s *svc) ListReceipts(ctx context.Context, messageID string) ([]store.Recei
 
 func (s *svc) handleReceipt(r waclient.IncomingReceipt) {
 	ctx := context.Background()
+	anyPersisted := false
 	for _, id := range r.MessageIDs {
 		if err := s.bundle.Receipts.Put(ctx, store.Receipt{
 			MessageID: id, ReaderJID: r.ReaderJID, Type: r.Type, Timestamp: r.Timestamp,
 		}); err != nil {
 			s.logger.Warn("persist receipt failed", "id", id, "type", r.Type, "err", err)
+			continue
 		}
+		anyPersisted = true
+	}
+	if anyPersisted {
+		s.emitter.Emit(ctx, "receipt.received", BuildReceiptReceivedPayload(r))
 	}
 }
 

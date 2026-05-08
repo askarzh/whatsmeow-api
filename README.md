@@ -14,8 +14,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 - **Plan 07b (reactions)** shipped: `POST /v1/messages/{id}/reactions {emoji}` adds or clears (empty emoji) a reaction; `GET /v1/messages/{id}/reactions` lists all reactions for a message. New `reactions` table (FK-cascade with messages). Inbound reaction events auto-persist.
 - **Plan 07c (read receipts + typing)** shipped: `POST /v1/messages/{id}/read` marks a received message as read (decrements `chats.unread_count`); `POST /v1/chats/{jid}/typing {state}` sends `composing`/`paused` presence; `GET /v1/messages/{id}/receipts` lists who has acked the message. New `receipts` table populated from inbound `events.Receipt`.
 - **Plan 08 (groups)** shipped: `POST /v1/groups` creates a group (chat row upserted with `kind=group`); `GET /v1/groups/{jid}/members` lists members live; `POST /v1/groups/{jid}/members` adds or removes members (returns per-JID outcomes); `DELETE /v1/groups/{jid}/membership` leaves the group (history preserved). All four use whatsmeow's group APIs directly — no schema changes.
+- **Plan 09 (SSE event stream)** shipped: `GET /v1/events` emits a Server-Sent-Events stream of inbound events (`message.received`, `message.edited`, `message.deleted`, `reaction.received`, `receipt.received`) plus `connection.state` transitions. Resume is supported via the standard `Last-Event-ID` header (or `?since=<seq>`) backed by the existing `events_log` table; on every reconnect a synthetic `connection.state` frame at id 0 reflects the daemon's current state. Per-subscriber buffer (`[http] sse_subscriber_buffer`, default 256) drops slow readers with a terminal `event: error` frame; heartbeat interval configurable via `[http] sse_heartbeat_seconds` (default 25s). Payloads carry `"v": 1` for forward compatibility.
 
-SSE event stream lands in Plan 09. Video/audio/sticker outbound deferred to a sibling plan.
+Outbound message lifecycle events (sent → delivered → read) and group-lifecycle deltas land in a future plan. Video/audio/sticker outbound deferred to a sibling plan.
 
 ## Quick start
 
