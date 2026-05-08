@@ -1954,7 +1954,8 @@ func TestLeaveGroupNotConnected(t *testing.T) {
 func captureEmitter(t *testing.T) (*sse.Broadcaster, <-chan sse.Event) {
 	t.Helper()
 	b := sse.New(64)
-	_, ch := b.Subscribe()
+	id, ch := b.Subscribe()
+	t.Cleanup(func() { b.Unsubscribe(id) })
 	return b, ch
 }
 
