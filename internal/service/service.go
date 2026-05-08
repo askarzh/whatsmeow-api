@@ -109,6 +109,10 @@ func New(wa waclient.WAClient, bundle store.Bundle, mediaStore *mediastore.Store
 	}
 	wa.OnIncomingMessage(s.handleIncoming)
 	wa.OnIncomingReceipt(s.handleReceipt) // Plan 07c
+	wa.OnConnectionState(func(ev waclient.ConnectionStateEvent) {
+		s.emitter.Emit(context.Background(), "connection.state",
+			BuildConnectionStatePayload(ev.Status, ev.Reason))
+	})
 	// TODO Plan 09 follow-up: wire inbound typing presence (composing/paused)
 	// into a handleTyping path that emits typing.received.
 	return s

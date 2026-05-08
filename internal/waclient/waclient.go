@@ -105,6 +105,13 @@ type IncomingReceipt struct {
 	Timestamp  time.Time
 }
 
+// ConnectionStateEvent is emitted on every whatsmeow connection-state
+// transition that the daemon cares to surface to consumers.
+type ConnectionStateEvent struct {
+	Status Status
+	Reason string // "logout" | "disconnect" | "login_failed" | "" on connected=true
+}
+
 // WAClient is the abstraction over whatsmeow used by the rest of the daemon.
 type WAClient interface {
 	Status() Status
@@ -138,6 +145,9 @@ type WAClient interface {
 	GetGroupInfo(ctx context.Context, groupJID string) (Group, error)
 	UpdateGroupParticipants(ctx context.Context, groupJID, action string, participantJIDs []string) ([]ParticipantChange, error)
 	LeaveGroup(ctx context.Context, groupJID string) error
+
+	// Plan 09
+	OnConnectionState(handler func(ConnectionStateEvent))
 }
 
 // Sentinel errors so callers can distinguish failure modes without parsing strings.

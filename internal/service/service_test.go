@@ -31,6 +31,7 @@ type fakeWA struct {
 	closed          bool
 	incoming        func(waclient.IncomingMessage)
 	incomingReceipt func(waclient.IncomingReceipt)
+	connectionState func(waclient.ConnectionStateEvent)
 }
 
 func (f *fakeWA) Status() waclient.Status      { return f.status }
@@ -73,6 +74,14 @@ func (f *fakeWA) UpdateGroupParticipants(context.Context, string, string, []stri
 	return nil, nil
 }
 func (f *fakeWA) LeaveGroup(context.Context, string) error { return nil }
+func (f *fakeWA) OnConnectionState(h func(waclient.ConnectionStateEvent)) {
+	f.connectionState = h
+}
+func (f *fakeWA) fireConnectionState(ev waclient.ConnectionStateEvent) {
+	if f.connectionState != nil {
+		f.connectionState(ev)
+	}
+}
 
 func TestStatusPassThrough(t *testing.T) {
 	jid := "27821234567@s.whatsapp.net"
@@ -2102,5 +2111,24 @@ func TestHandleReceiptEmitsReceiptReceived(t *testing.T) {
 		assert.Contains(t, string(ev.Payload), `"type":"read"`)
 	case <-time.After(time.Second):
 		t.Fatal("did not receive receipt.received event")
+	}
+}
+
+func TestConnectionStateEmits(t *testing.T) {
+	bundle, _, _, _, _, _ := newInMemoryBundle()
+	wa := &fakeWA{}
+	b, ch := captureEmitter(t)
+	_ = service.New(wa, bundle, mediastore.New(t.TempDir()), b, nil)
+
+	jid := "me@s.whatsapp.net"
+	wa.fireConnectionState(waclient.ConnectionStateEvent{
+		Status: waclient.Status{Connected: true, JID: &jid},
+	})
+
+	select {
+	case ev := <-ch:
+		assert.Equal(t, "connection.state", ev.Kind)
+	case <-time.After(time.Second):
+		t.Fatal("no connection.state event")
 	}
 }
