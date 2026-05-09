@@ -20,16 +20,16 @@ type Chat struct {
 
 // Message is one persisted message in a chat.
 type Message struct {
-	ID         string // whatsmeow's native id (e.g. "3EB05ABC...")
-	ChatJID    string
-	SenderJID  string
-	Timestamp  time.Time
-	Kind       string // "text" | "image" | "video" | "audio" | "document" | "sticker" | "system"
-	Body       string
-	ReplyTo    string // empty if not a reply
-	EditedAt   *time.Time
-	DeletedAt  *time.Time
-	RawMeta    string // JSON-encoded passthrough of the whatsmeow event
+	ID        string // whatsmeow's native id (e.g. "3EB05ABC...")
+	ChatJID   string
+	SenderJID string
+	Timestamp time.Time
+	Kind      string // "text" | "image" | "video" | "audio" | "document" | "sticker" | "system"
+	Body      string
+	ReplyTo   string // empty if not a reply
+	EditedAt  *time.Time
+	DeletedAt *time.Time
+	RawMeta   string // JSON-encoded passthrough of the whatsmeow event
 }
 
 // Contact is a known WhatsApp identity.

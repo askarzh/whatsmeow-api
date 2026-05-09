@@ -13,6 +13,7 @@
 /config.local.toml
 /.env
 /.env.*
+examples/docker-compose/.env
 
 # editor / OS
 .idea/

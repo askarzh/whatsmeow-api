@@ -1,0 +1,25 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - gofmt
+    - govet
+    - staticcheck
+    - errcheck
+    - unused
+    - ineffassign
+    - gosimple
+
+issues:
+  exclude-dirs:
+    - .worktrees
+    - data
+    - bin
+
+  # Specific exclusions can be added here if a rule fires false positives on
+  # legitimate existing code. Empty for now; the implementation plan reviews
+  # any noise once the linter runs and fixes call sites in preference to
+  # disabling rules.
