@@ -1,0 +1,16 @@
+.git
+.github
+.worktrees
+data
+bin
+tmp
+docs/superpowers/plans
+docs/superpowers/specs
+*.db
+*.db-wal
+*.db-shm
+testdata
+*.log
+/coverage*
+.env
+.env.*
