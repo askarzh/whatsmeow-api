@@ -1,5 +1,7 @@
 # whatsmeow-api
 
+[![CI](https://github.com/askarzh/whatsmeow-api/actions/workflows/ci.yml/badge.svg)](https://github.com/askarzh/whatsmeow-api/actions/workflows/ci.yml)
+
 A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir/whatsmeow) and exposes a stable JSON API for a single WhatsApp account. Designed primarily as a backend for an MCP server, but usable from any HTTP client.
 
 ## Status
@@ -16,8 +18,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 - **Plan 08 (groups)** shipped: `POST /v1/groups` creates a group (chat row upserted with `kind=group`); `GET /v1/groups/{jid}/members` lists members live; `POST /v1/groups/{jid}/members` adds or removes members (returns per-JID outcomes); `DELETE /v1/groups/{jid}/membership` leaves the group (history preserved). All four use whatsmeow's group APIs directly — no schema changes.
 - **Plan 09 (SSE event stream)** shipped: `GET /v1/events` emits a Server-Sent-Events stream of inbound events (`message.received`, `message.edited`, `message.deleted`, `reaction.received`, `receipt.received`) plus `connection.state` transitions. Resume is supported via the standard `Last-Event-ID` header (or `?since=<seq>`) backed by the existing `events_log` table; on every reconnect a synthetic `connection.state` frame at id 0 reflects the daemon's current state. Per-subscriber buffer (`[http] sse_subscriber_buffer`, default 256) drops slow readers with a terminal `event: error` frame; heartbeat interval configurable via `[http] sse_heartbeat_seconds` (default 25s). Payloads carry `"v": 1` for forward compatibility.
 - **Plan 10 (Postgres store)** shipped: the daemon now runs against either SQLite (default, dev) or Postgres (production), selected via `[storage] backend = "sqlite" | "postgres"` and `postgres_dsn`. Schema and queries are dialect-specific (`internal/store/sqlite/` and `internal/store/postgres/`); a shared test suite (`internal/store/storesuite/`) runs the same assertions against both backends so dialect drift surfaces in tests. Full-text search uses FTS5 on SQLite and `tsvector` + GIN on Postgres — same `/v1/messages/search` contract, dialect-specific ranking. Postgres tests use testcontainers-go (`postgres:16-alpine`) and skip cleanly when Docker is unavailable.
+- **Plan 11 (Docker + CI + examples)** shipped: image published to `ghcr.io/askarzh/whatsmeow-api` on every push to main and on `v*` tags; GitHub Actions CI runs `golangci-lint` + `go test -race` (both dialects via testcontainers) on every PR; `examples/docker-compose/` provides a self-host setup with sqlite + postgres profiles; `examples/cookbook.md` documents every HTTP endpoint with copy-pasteable curl recipes.
 
-Docker image and CI workflow land in Plan 11. Outbound message lifecycle events (sent → delivered → read) and group-lifecycle deltas land in a future plan. Video/audio/sticker outbound deferred to a sibling plan.
+v1 is complete. Future work — outbound message lifecycle events, group-lifecycle deltas, video/audio/sticker outbound, multi-arch image, helm chart — is tracked in the spec backlog and lives in follow-up plans as real consumer needs surface.
 
 ## Quick start
 
@@ -31,6 +34,22 @@ make build
 ```
 
 `login phone +27821234567` is the alternative if you can't scan a QR — the daemon prints an 8-character code; enter it on the linked-device screen.
+
+## Run with Docker
+
+Pull the latest dev image and run against SQLite:
+
+```bash
+docker run --rm -p 8080:8080 \
+           -v $(pwd)/data:/data \
+           -e WMAPI_AUTH__TOKEN=change-me \
+           -e WMAPI_SERVER__BIND=0.0.0.0 \
+           ghcr.io/askarzh/whatsmeow-api:main
+```
+
+For a self-host setup with Postgres, see [`examples/docker-compose/`](examples/docker-compose/).
+
+For a curl recipe per endpoint, see [`examples/cookbook.md`](examples/cookbook.md).
 
 ## Configuration
 
