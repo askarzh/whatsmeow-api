@@ -62,7 +62,7 @@ func RunMessageListByChat(t *testing.T, b store.Bundle) {
 		return store.Message{
 			ID: id, ChatJID: chat, SenderJID: chat,
 			Timestamp: time.Unix(int64(secs), 0).UTC(),
-			Kind: "text", Body: id,
+			Kind:      "text", Body: id,
 		}
 	}
 	for _, m := range []store.Message{mk("a", 100), mk("b", 200), mk("c", 300), mk("d", 400)} {
