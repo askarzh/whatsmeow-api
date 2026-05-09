@@ -12,6 +12,8 @@ import (
 	"github.com/askarzh/whatsmeow-api/internal/logging"
 	"github.com/askarzh/whatsmeow-api/internal/mediastore"
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
+	postgresstore "github.com/askarzh/whatsmeow-api/internal/store/postgres"
 	sqlitestore "github.com/askarzh/whatsmeow-api/internal/store/sqlite"
 	httpapi "github.com/askarzh/whatsmeow-api/internal/transport/http"
 	"github.com/askarzh/whatsmeow-api/internal/transport/sse"
@@ -74,18 +76,37 @@ func serveCmd() *cobra.Command {
 				_ = container.Close()
 			}()
 
-			appPath := filepath.Join(cfg.DataDir, "whatsmeow-app.db")
-			appDB, err := sqlitestore.New(ctx, appPath)
-			if err != nil {
-				return fmt.Errorf("open app store: %w", err)
+			var (
+				appStore interface{ Close() error }
+				bundle   store.Bundle
+			)
+			switch cfg.Storage.Backend {
+			case "sqlite":
+				appPath := filepath.Join(cfg.DataDir, "whatsmeow-app.db")
+				s, err := sqlitestore.New(ctx, appPath)
+				if err != nil {
+					return fmt.Errorf("open sqlite app store: %w", err)
+				}
+				appStore = s
+				bundle = s.Bundle()
+			case "postgres":
+				s, err := postgresstore.New(ctx, cfg.Storage.PostgresDSN)
+				if err != nil {
+					return fmt.Errorf("open postgres app store: %w", err)
+				}
+				appStore = s
+				bundle = s.Bundle()
+			default:
+				// Validation in config rejects this; defensive only.
+				return fmt.Errorf("unsupported storage.backend: %q", cfg.Storage.Backend)
 			}
-			defer func() { _ = appDB.Close() }()
-			logger.Info("app store opened", "path", appPath)
+			defer func() { _ = appStore.Close() }()
+			logger.Info("app store opened", "backend", cfg.Storage.Backend)
 
 			mediaDir := filepath.Join(cfg.DataDir, "media")
 			mediaSt := mediastore.New(mediaDir)
 			broadcaster := sse.New(cfg.HTTP.SSESubscriberBuffer)
-			svc := service.New(wa, appDB.Bundle(), mediaSt, broadcaster, logger)
+			svc := service.New(wa, bundle, mediaSt, broadcaster, logger)
 
 			if err := wa.Resume(ctx); err != nil {
 				logger.Warn("session resume failed; awaiting /v1/login/*", "err", err)
@@ -95,7 +116,7 @@ func serveCmd() *cobra.Command {
 				Config:      cfg,
 				Logger:      logger,
 				Service:     svc,
-				Store:       appDB.Bundle(),
+				Store:       bundle,
 				Broadcaster: broadcaster,
 			})
 

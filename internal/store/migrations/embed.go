@@ -1,5 +1,4 @@
 // Package migrations embeds the SQL migration files for the app store.
-// Plan 10 will add a `postgres/` sibling.
 package migrations
 
 import (
@@ -10,13 +9,24 @@ import (
 //go:embed sqlite/*.sql
 var sqliteFiles embed.FS
 
-// SQLite returns the embedded migration files rooted so that file names look
-// like "0001_init.up.sql" (rather than "sqlite/0001_init.up.sql").
-// golang-migrate's iofs source expects this layout.
+//go:embed postgres/*.sql
+var postgresFiles embed.FS
+
+// SQLite returns the embedded SQLite migration files rooted so that file
+// names look like "0001_init.up.sql".
 func SQLite() fs.FS {
 	sub, err := fs.Sub(sqliteFiles, "sqlite")
 	if err != nil {
-		// Compile-time impossibility: the //go:embed directive is fixed.
+		panic(err)
+	}
+	return sub
+}
+
+// Postgres returns the embedded Postgres migration files rooted so that file
+// names look like "0001_init.up.sql".
+func Postgres() fs.FS {
+	sub, err := fs.Sub(postgresFiles, "postgres")
+	if err != nil {
 		panic(err)
 	}
 	return sub

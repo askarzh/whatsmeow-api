@@ -12,7 +12,11 @@ token = ""
 # "sqlite" or "postgres"
 backend = "sqlite"
 sqlite_path = "./data/whatsmeow-api.db"
-# Used when backend = "postgres". For Supabase, use the connection-pooler DSN.
+# Required when backend = "postgres". libpq URL or keyword=value form.
+# Examples:
+#   postgres://user:password@host:5432/dbname?sslmode=require
+#   host=db.example.com port=5432 dbname=whatsmeow_api user=app sslmode=require
+# Set via WMAPI_STORAGE__POSTGRES_DSN env var to keep credentials out of the file.
 postgres_dsn = ""
 
 [log]
