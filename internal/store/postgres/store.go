@@ -28,7 +28,7 @@ type Store struct {
 	db *sql.DB
 
 	chats     *ChatStore
-	messages  store.MessageStore
+	messages  *MessageStore
 	contacts  *ContactStore
 	media     store.MediaStore
 	events    store.EventsLog
@@ -56,10 +56,11 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 
 	s := &Store{db: db}
 	s.chats = &ChatStore{db: db}
+	s.messages = &MessageStore{db: db}
 	s.contacts = &ContactStore{db: db}
 	s.kv = &KVStore{db: db}
-	// Remaining per-domain sub-stores (messages, media, events, reactions,
-	// receipts) are wired in Tasks 5-6.
+	// Remaining per-domain sub-stores (media, events, reactions, receipts) are
+	// wired in Task 6.
 	return s, nil
 }
 
