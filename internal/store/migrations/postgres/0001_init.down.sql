@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS kv;
+DROP TABLE IF EXISTS events_log;
+DROP TABLE IF EXISTS media;
+DROP TABLE IF EXISTS contacts;
+DROP INDEX IF EXISTS idx_messages_body_tsv;
+DROP INDEX IF EXISTS idx_messages_chat_ts;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS chats;
