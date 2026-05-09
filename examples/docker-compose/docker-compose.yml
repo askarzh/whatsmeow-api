@@ -1,0 +1,39 @@
+name: whatsmeow-api
+
+services:
+  daemon:
+    image: ghcr.io/askarzh/whatsmeow-api:main
+    profiles: ["sqlite", "postgres"]
+    ports:
+      - "8080:8080"
+    environment:
+      WMAPI_AUTH__TOKEN: ${WMAPI_AUTH_TOKEN}
+      WMAPI_STORAGE__BACKEND: ${WMAPI_STORAGE_BACKEND:-sqlite}
+      WMAPI_STORAGE__POSTGRES_DSN: ${WMAPI_STORAGE_POSTGRES_DSN:-}
+      WMAPI_DATA_DIR: /data
+      WMAPI_SERVER__BIND: "0.0.0.0"
+    volumes:
+      - daemon-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: whatsmeow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-whatsmeow}
+      POSTGRES_DB: whatsmeow_api
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatsmeow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  daemon-data:
+  postgres-data:
