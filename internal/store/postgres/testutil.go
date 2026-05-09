@@ -85,3 +85,13 @@ func resetTables(t *testing.T, s *Store) {
 		t.Fatalf("reset tables: %v", err)
 	}
 }
+
+// HardDeleteMessage is a test-only helper that issues a hard DELETE against the
+// messages table so callers can exercise the FK ON DELETE CASCADE behavior.
+// The public MessageStore only soft-deletes.
+func HardDeleteMessage(t *testing.T, s *Store, messageID string) {
+	t.Helper()
+	if _, err := s.db.ExecContext(context.Background(), `DELETE FROM messages WHERE id = $1`, messageID); err != nil {
+		t.Fatalf("hard delete message %q: %v", messageID, err)
+	}
+}

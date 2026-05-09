@@ -21,20 +21,17 @@ import (
 // Store is the Postgres implementation of the app store. It holds the
 // underlying *sql.DB plus per-domain sub-stores; Bundle() exposes them as the
 // interface types defined in package store.
-//
-// Per-domain sub-store fields are wired in Tasks 4-6. Until then they remain
-// nil and Bundle() returns a struct with nil interface fields.
 type Store struct {
 	db *sql.DB
 
 	chats     *ChatStore
 	messages  *MessageStore
 	contacts  *ContactStore
-	media     store.MediaStore
-	events    store.EventsLog
+	media     *MediaStore
+	events    *EventsLog
 	kv        *KVStore
-	reactions store.ReactionStore
-	receipts  store.ReceiptStore
+	reactions *ReactionStore
+	receipts  *ReceiptStore
 }
 
 // New opens a Postgres connection at dsn, runs all pending migrations, and
@@ -58,9 +55,11 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	s.chats = &ChatStore{db: db}
 	s.messages = &MessageStore{db: db}
 	s.contacts = &ContactStore{db: db}
+	s.media = &MediaStore{db: db}
+	s.events = &EventsLog{db: db}
 	s.kv = &KVStore{db: db}
-	// Remaining per-domain sub-stores (media, events, reactions, receipts) are
-	// wired in Task 6.
+	s.reactions = &ReactionStore{db: db}
+	s.receipts = &ReceiptStore{db: db}
 	return s, nil
 }
 
@@ -69,9 +68,7 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// Bundle returns the store interfaces used by the service layer. Until
-// Tasks 4-6 wire the sub-stores, callers should not invoke methods on these
-// fields — they will be nil.
+// Bundle returns the store interfaces used by the service layer.
 func (s *Store) Bundle() store.Bundle {
 	return store.Bundle{
 		Chats:     s.chats,
