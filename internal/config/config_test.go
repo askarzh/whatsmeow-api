@@ -103,7 +103,7 @@ func TestValidate(t *testing.T) {
 			wantErr: "auth.token is required when server.bind is not a loopback address",
 		},
 		{
-			name:    "non-localhost bind with token allowed",
+			name: "non-localhost bind with token allowed",
 			mutate: func(c *config.Config) {
 				c.Server.Bind = "0.0.0.0"
 				c.Auth.Token = "x"

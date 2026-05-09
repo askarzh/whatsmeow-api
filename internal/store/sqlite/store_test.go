@@ -66,5 +66,5 @@ func TestBundleFieldsNonNil(t *testing.T) {
 	assert.NotNil(t, b.Events)
 	assert.NotNil(t, b.KV)
 	assert.NotNil(t, b.Reactions) // Plan 07b
-	assert.NotNil(t, b.Receipts) // Plan 07c
+	assert.NotNil(t, b.Receipts)  // Plan 07c
 }

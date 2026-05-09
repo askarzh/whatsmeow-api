@@ -71,21 +71,6 @@ func NewTestStore(t *testing.T) *Store {
 	return s
 }
 
-// resetTables truncates every table in the public schema. Tests use this to
-// isolate from each other without paying for a new container per test.
-func resetTables(t *testing.T, s *Store) {
-	t.Helper()
-	const stmt = `
-		TRUNCATE TABLE
-			receipts, reactions, kv, events_log,
-			media, messages, contacts, chats
-		RESTART IDENTITY CASCADE
-	`
-	if _, err := s.db.ExecContext(context.Background(), stmt); err != nil {
-		t.Fatalf("reset tables: %v", err)
-	}
-}
-
 // HardDeleteMessage is a test-only helper that issues a hard DELETE against the
 // messages table so callers can exercise the FK ON DELETE CASCADE behavior.
 // The public MessageStore only soft-deletes.
