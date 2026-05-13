@@ -31,6 +31,13 @@ type fakeService struct {
 	listReactionsFn  func(context.Context, string) ([]store.Reaction, error)
 	listReceiptsFn   func(context.Context, string) ([]store.Receipt, error)
 	getMediaRefFn    func(context.Context, string) (store.MediaRef, error)
+	sendTextFn       func(ctx context.Context, chatJID, text, replyTo string) (store.Message, error)
+	sendMediaFn      func(context.Context, service.SendMediaRequest) (store.Message, error)
+	editMessageFn    func(context.Context, string, string) (store.Message, error)
+	deleteMessageFn  func(context.Context, string) error
+	sendReactionFn   func(context.Context, string, string) error
+	markReadFn       func(context.Context, string) error
+	sendTypingFn     func(context.Context, string, string) error
 }
 
 func (f *fakeService) Status(ctx context.Context) (waclient.Status, error) {
@@ -75,6 +82,34 @@ func (f *fakeService) ListReceipts(ctx context.Context, messageID string) ([]sto
 
 func (f *fakeService) GetMediaRef(ctx context.Context, messageID string) (store.MediaRef, error) {
 	return f.getMediaRefFn(ctx, messageID)
+}
+
+func (f *fakeService) SendText(ctx context.Context, chatJID, text, replyTo string) (store.Message, error) {
+	return f.sendTextFn(ctx, chatJID, text, replyTo)
+}
+
+func (f *fakeService) SendMedia(ctx context.Context, req service.SendMediaRequest) (store.Message, error) {
+	return f.sendMediaFn(ctx, req)
+}
+
+func (f *fakeService) EditMessage(ctx context.Context, messageID, newText string) (store.Message, error) {
+	return f.editMessageFn(ctx, messageID, newText)
+}
+
+func (f *fakeService) DeleteMessage(ctx context.Context, messageID string) error {
+	return f.deleteMessageFn(ctx, messageID)
+}
+
+func (f *fakeService) SendReaction(ctx context.Context, messageID, emoji string) error {
+	return f.sendReactionFn(ctx, messageID, emoji)
+}
+
+func (f *fakeService) MarkMessageRead(ctx context.Context, messageID string) error {
+	return f.markReadFn(ctx, messageID)
+}
+
+func (f *fakeService) SendTyping(ctx context.Context, chatJID, state string) error {
+	return f.sendTypingFn(ctx, chatJID, state)
 }
 
 func inMemoryClient(t *testing.T, svc service.Service) (context.Context, *mcpsdk.ClientSession) {

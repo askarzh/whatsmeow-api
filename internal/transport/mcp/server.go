@@ -41,6 +41,7 @@ func newServer(d Deps) *mcpsdk.Server {
 	registerChatTools(srv, d)
 	registerContactTools(srv, d)
 	registerReadOnlyMessageTools(srv, d)
+	registerWriteMessageTools(srv, d)
 	return srv
 }
 
