@@ -83,7 +83,7 @@ func TestWAStatus_ServiceError(t *testing.T) {
 func TestWAStats_HappyPath(t *testing.T) {
 	svc := &fakeService{
 		statsFn: func(_ context.Context) (service.Stats, error) {
-			return service.Stats{Chats: 7, Messages: 42}, nil
+			return service.Stats{Chats: 7, Messages: 42, Contacts: 13, UnreadTotal: 3}, nil
 		},
 	}
 	ctx, session := inMemoryClient(t, svc)
@@ -94,6 +94,8 @@ func TestWAStats_HappyPath(t *testing.T) {
 	out := decodeStructured[waStatsOutput](t, res)
 	require.Equal(t, 7, out.Chats)
 	require.Equal(t, 42, out.Messages)
+	require.Equal(t, 13, out.Contacts)
+	require.Equal(t, 3, out.UnreadTotal)
 }
 
 // decodeStructured pulls the typed output from a CallToolResult.

@@ -11,15 +11,17 @@ import (
 	"github.com/askarzh/whatsmeow-api/internal/store"
 )
 
-// mapErr converts a service-layer error into either an MCP "tool error"
-// (CallToolResult with IsError=true) or a transport-level error the SDK turns
-// into a JSON-RPC internal-error reply.
+// mapErr converts a service-layer error into an MCP tool error.
+// Known error types get a categorised message; everything else is logged in
+// full and replaced with a generic "internal error" so the client never sees
+// internals (SQL state, file paths, etc.).
 //
 // Buckets:
-//   - service.ErrInvalidRequest → tool error "invalid request: ..."
-//   - service.ErrForbidden      → tool error "forbidden: ..."
-//   - store.ErrNotFound         → tool error "not found: ..."
-//   - any other non-nil error   → transport error (logged; client sees "internal error")
+//   - service.ErrInvalidRequest → "invalid request: ..." (via CallToolResult, IsError=true)
+//   - service.ErrForbidden      → "forbidden: ..."       (via CallToolResult, IsError=true)
+//   - store.ErrNotFound         → "not found: ..."       (via CallToolResult, IsError=true)
+//   - any other non-nil error   → logged; returned as a Go error from the handler.
+//     The SDK then wraps it as IsError=true with "internal error" text (no JSON-RPC error).
 func mapErr(err error, logger *slog.Logger) (*mcpsdk.CallToolResult, error) {
 	if err == nil {
 		return nil, nil
