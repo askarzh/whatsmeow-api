@@ -37,6 +37,7 @@ func newServer(d Deps) *mcpsdk.Server {
 	}, &mcpsdk.ServerOptions{
 		Instructions: instructions,
 	})
+	registerStatusTools(srv, d)
 	return srv
 }
 
