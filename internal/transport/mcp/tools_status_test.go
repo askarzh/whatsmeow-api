@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/askarzh/whatsmeow-api/internal/service"
+	"github.com/askarzh/whatsmeow-api/internal/store"
 	"github.com/askarzh/whatsmeow-api/internal/waclient"
 )
 
@@ -18,8 +20,17 @@ import (
 // missing wiring as a test bug instead of a confusing nil-method error.
 type fakeService struct {
 	service.Service // unset methods panic via embedded-nil deref
-	statusFn func(context.Context) (waclient.Status, error)
-	statsFn  func(context.Context) (service.Stats, error)
+	statusFn         func(context.Context) (waclient.Status, error)
+	statsFn          func(context.Context) (service.Stats, error)
+	listChatsFn      func(context.Context, time.Time, int, bool) ([]store.Chat, error)
+	getChatFn        func(context.Context, string) (store.Chat, error)
+	listMessagesFn   func(context.Context, string, time.Time, int) ([]store.Message, error)
+	searchMessagesFn func(context.Context, string, int) ([]store.Message, error)
+	listContactsFn   func(context.Context) ([]store.Contact, error)
+	searchContactsFn func(context.Context, string, int) ([]store.Contact, error)
+	listReactionsFn  func(context.Context, string) ([]store.Reaction, error)
+	listReceiptsFn   func(context.Context, string) ([]store.Receipt, error)
+	getMediaRefFn    func(context.Context, string) (store.MediaRef, error)
 }
 
 func (f *fakeService) Status(ctx context.Context) (waclient.Status, error) {
@@ -28,6 +39,42 @@ func (f *fakeService) Status(ctx context.Context) (waclient.Status, error) {
 
 func (f *fakeService) Stats(ctx context.Context) (service.Stats, error) {
 	return f.statsFn(ctx)
+}
+
+func (f *fakeService) ListChats(ctx context.Context, before time.Time, limit int, includeArchived bool) ([]store.Chat, error) {
+	return f.listChatsFn(ctx, before, limit, includeArchived)
+}
+
+func (f *fakeService) GetChat(ctx context.Context, jid string) (store.Chat, error) {
+	return f.getChatFn(ctx, jid)
+}
+
+func (f *fakeService) ListMessages(ctx context.Context, chatJID string, beforeTS time.Time, limit int) ([]store.Message, error) {
+	return f.listMessagesFn(ctx, chatJID, beforeTS, limit)
+}
+
+func (f *fakeService) SearchMessages(ctx context.Context, query string, limit int) ([]store.Message, error) {
+	return f.searchMessagesFn(ctx, query, limit)
+}
+
+func (f *fakeService) ListContacts(ctx context.Context) ([]store.Contact, error) {
+	return f.listContactsFn(ctx)
+}
+
+func (f *fakeService) SearchContacts(ctx context.Context, query string, limit int) ([]store.Contact, error) {
+	return f.searchContactsFn(ctx, query, limit)
+}
+
+func (f *fakeService) ListReactions(ctx context.Context, messageID string) ([]store.Reaction, error) {
+	return f.listReactionsFn(ctx, messageID)
+}
+
+func (f *fakeService) ListReceipts(ctx context.Context, messageID string) ([]store.Receipt, error) {
+	return f.listReceiptsFn(ctx, messageID)
+}
+
+func (f *fakeService) GetMediaRef(ctx context.Context, messageID string) (store.MediaRef, error) {
+	return f.getMediaRefFn(ctx, messageID)
 }
 
 func inMemoryClient(t *testing.T, svc service.Service) (context.Context, *mcpsdk.ClientSession) {
