@@ -12,5 +12,5 @@ func TestNew_ReturnsNonNilHandler(t *testing.T) {
 	h := mcptransport.New(mcptransport.Deps{
 		Version: "test",
 	})
-	require.NotNil(t, h, "MCP handler must be constructible without a Service")
+	require.NotNil(t, h)
 }

@@ -16,12 +16,10 @@ import (
 type Deps struct {
 	Service service.Service
 	Logger  *slog.Logger
-	Version string // forwarded to clients on initialize
+	Version string
 }
 
 // New returns an http.Handler that speaks MCP over streamable HTTP.
-// The handler is safe to mount under chi and is decoupled from auth —
-// the caller wraps it in whatever middleware they need.
 func New(d Deps) http.Handler {
 	if d.Logger == nil {
 		d.Logger = slog.Default()
@@ -32,8 +30,6 @@ func New(d Deps) http.Handler {
 	)
 }
 
-// newServer constructs a fresh MCP server bound to the given dependencies.
-// Tool registration is split into one file per domain to keep each file small.
 func newServer(d Deps) *mcpsdk.Server {
 	srv := mcpsdk.NewServer(&mcpsdk.Implementation{
 		Name:    "whatsmeow-api",
@@ -41,7 +37,6 @@ func newServer(d Deps) *mcpsdk.Server {
 	}, &mcpsdk.ServerOptions{
 		Instructions: instructions,
 	})
-	// Tool registration lands here in later tasks.
 	return srv
 }
 
