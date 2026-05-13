@@ -19,24 +19,24 @@ import (
 // fields it exercises. A nil function field panics on access — that surfaces
 // missing wiring as a test bug instead of a confusing nil-method error.
 type fakeService struct {
-	service.Service // unset methods panic via embedded-nil deref
-	statusFn         func(context.Context) (waclient.Status, error)
-	statsFn          func(context.Context) (service.Stats, error)
-	listChatsFn      func(context.Context, time.Time, int, bool) ([]store.Chat, error)
-	getChatFn        func(context.Context, string) (store.Chat, error)
-	listMessagesFn   func(context.Context, string, time.Time, int) ([]store.Message, error)
-	searchMessagesFn func(context.Context, string, int) ([]store.Message, error)
-	listContactsFn   func(context.Context) ([]store.Contact, error)
-	searchContactsFn func(context.Context, string, int) ([]store.Contact, error)
-	listReactionsFn  func(context.Context, string) ([]store.Reaction, error)
-	listReceiptsFn   func(context.Context, string) ([]store.Receipt, error)
-	getMediaRefFn    func(context.Context, string) (store.MediaRef, error)
-	sendTextFn       func(ctx context.Context, chatJID, text, replyTo string) (store.Message, error)
-	sendMediaFn      func(context.Context, service.SendMediaRequest) (store.Message, error)
-	editMessageFn    func(context.Context, string, string) (store.Message, error)
-	deleteMessageFn  func(context.Context, string) error
-	sendReactionFn   func(context.Context, string, string) error
-	markReadFn       func(context.Context, string) error
+	service.Service      // unset methods panic via embedded-nil deref
+	statusFn             func(context.Context) (waclient.Status, error)
+	statsFn              func(context.Context) (service.Stats, error)
+	listChatsFn          func(context.Context, time.Time, int, bool) ([]store.Chat, error)
+	getChatFn            func(context.Context, string) (store.Chat, error)
+	listMessagesFn       func(context.Context, string, time.Time, int) ([]store.Message, error)
+	searchMessagesFn     func(context.Context, string, int) ([]store.Message, error)
+	listContactsFn       func(context.Context) ([]store.Contact, error)
+	searchContactsFn     func(context.Context, string, int) ([]store.Contact, error)
+	listReactionsFn      func(context.Context, string) ([]store.Reaction, error)
+	listReceiptsFn       func(context.Context, string) ([]store.Receipt, error)
+	getMediaRefFn        func(context.Context, string) (store.MediaRef, error)
+	sendTextFn           func(ctx context.Context, chatJID, text, replyTo string) (store.Message, error)
+	sendMediaFn          func(context.Context, service.SendMediaRequest) (store.Message, error)
+	editMessageFn        func(context.Context, string, string) (store.Message, error)
+	deleteMessageFn      func(context.Context, string) error
+	sendReactionFn       func(context.Context, string, string) error
+	markReadFn           func(context.Context, string) error
 	sendTypingFn         func(context.Context, string, string) error
 	loginQRFn            func(context.Context) (<-chan waclient.QREvent, error)
 	loginPhoneFn         func(context.Context, string) (<-chan waclient.PairEvent, error)
