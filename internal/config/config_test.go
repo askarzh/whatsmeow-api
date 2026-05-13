@@ -71,6 +71,19 @@ func TestEnvOverride(t *testing.T) {
 	assert.Equal(t, "json", c.Log.Format)
 }
 
+func TestLoad_MCPDefaults(t *testing.T) {
+	c, err := config.Load("")
+	require.NoError(t, err)
+	require.True(t, c.MCP.Enabled, "mcp.enabled should default to true")
+}
+
+func TestLoad_MCPEnvOverride(t *testing.T) {
+	t.Setenv("WMAPI_MCP__ENABLED", "false")
+	c, err := config.Load("")
+	require.NoError(t, err)
+	require.False(t, c.MCP.Enabled, "WMAPI_MCP__ENABLED=false should turn it off")
+}
+
 func TestValidate(t *testing.T) {
 	cases := []struct {
 		name    string

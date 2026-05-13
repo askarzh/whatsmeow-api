@@ -23,6 +23,7 @@ type Config struct {
 	Events  EventsConfig  `koanf:"events"`
 	Metrics MetricsConfig `koanf:"metrics"`
 	HTTP    HTTPConfig    `koanf:"http"`
+	MCP     MCPConfig     `koanf:"mcp"`
 }
 
 type ServerConfig struct {
@@ -49,6 +50,10 @@ type EventsConfig struct {
 	RetentionHours int `koanf:"retention_hours"`
 }
 
+type MCPConfig struct {
+	Enabled bool `koanf:"enabled"`
+}
+
 type MetricsConfig struct {
 	Enabled bool `koanf:"enabled"`
 }
@@ -71,6 +76,7 @@ func defaults() map[string]any {
 		"log.level":                  "info",
 		"log.format":                 "text",
 		"events.retention_hours":     24,
+		"mcp.enabled":                true,
 		"metrics.enabled":            false,
 		"http.max_body_bytes":        int64(100 * 1024 * 1024),
 		"http.sse_heartbeat_seconds": 25,

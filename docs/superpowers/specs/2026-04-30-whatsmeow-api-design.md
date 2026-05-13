@@ -7,7 +7,7 @@
 
 ## 1. Purpose
 
-A long-running Go daemon that wraps [`whatsmeow`](https://github.com/tulir/whatsmeow) and exposes a stable JSON HTTP API plus an SSE event stream for a single WhatsApp account. The primary consumer is a separate MCP server that translates the API into MCP tools for Claude. The API is generic enough to be used by any HTTP client.
+A long-running Go daemon that wraps [`whatsmeow`](https://github.com/tulir/whatsmeow) and exposes a stable JSON HTTP API plus an SSE event stream for a single WhatsApp account. The same daemon also serves an MCP-over-HTTP transport at `/v1/mcp` (see Plan 12) so Claude can drive every capability through 25 typed tools. The API is generic enough to be used by any HTTP client.
 
 ## 2. Goals
 
@@ -138,7 +138,7 @@ Base path `/v1`. JSON request/response. `Authorization: Bearer <token>` required
 - `presence`
 - `connection` (logged_in / disconnected / reconnecting / logged_out)
 
-Each event carries the full payload the MCP server needs (no follow-up fetch for the typical case). 15 s heartbeat (SSE comment line). On reconnect the client may pass `Last-Event-ID`; the server resumes from `events_log.seq`. Retention default: 24 h (configurable).
+Each event carries the full payload an MCP or REST client needs (no follow-up fetch for the typical case). 15 s heartbeat (SSE comment line). On reconnect the client may pass `Last-Event-ID`; the server resumes from `events_log.seq`. Retention default: 24 h (configurable).
 
 ## 8. Authentication
 
