@@ -8,10 +8,15 @@ import (
 	"github.com/askarzh/whatsmeow-api/internal/config"
 	"github.com/askarzh/whatsmeow-api/internal/service"
 	"github.com/askarzh/whatsmeow-api/internal/store"
+	mcpapi "github.com/askarzh/whatsmeow-api/internal/transport/mcp"
 	"github.com/askarzh/whatsmeow-api/internal/transport/sse"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
+
+// Version is the daemon version surfaced over MCP initialize. It is overridden
+// at build time via -ldflags="-X .../http.Version=<tag>".
+var Version = "dev"
 
 // Deps is the bundle of values the router depends on.
 type Deps struct {
@@ -66,6 +71,13 @@ func NewRouter(d Deps) http.Handler {
 			r.Method(http.MethodDelete, "/groups/{jid}/membership", LeaveGroupHandler(d.Service))
 			r.Method(http.MethodGet, "/events",
 				EventsHandler(d.Service, d.Store.Events, d.Broadcaster, d.Config.HTTP.SSEHeartbeatSeconds))
+			if d.Config.MCP.Enabled {
+				r.Mount("/mcp", mcpapi.New(mcpapi.Deps{
+					Service: d.Service,
+					Logger:  d.Logger,
+					Version: Version,
+				}))
+			}
 		})
 	})
 
