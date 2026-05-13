@@ -19,8 +19,9 @@ A long-running HTTP/SSE daemon that wraps [`whatsmeow`](https://github.com/tulir
 - **Plan 09 (SSE event stream)** shipped: `GET /v1/events` emits a Server-Sent-Events stream of inbound events (`message.received`, `message.edited`, `message.deleted`, `reaction.received`, `receipt.received`) plus `connection.state` transitions. Resume is supported via the standard `Last-Event-ID` header (or `?since=<seq>`) backed by the existing `events_log` table; on every reconnect a synthetic `connection.state` frame at id 0 reflects the daemon's current state. Per-subscriber buffer (`[http] sse_subscriber_buffer`, default 256) drops slow readers with a terminal `event: error` frame; heartbeat interval configurable via `[http] sse_heartbeat_seconds` (default 25s). Payloads carry `"v": 1` for forward compatibility.
 - **Plan 10 (Postgres store)** shipped: the daemon now runs against either SQLite (default, dev) or Postgres (production), selected via `[storage] backend = "sqlite" | "postgres"` and `postgres_dsn`. Schema and queries are dialect-specific (`internal/store/sqlite/` and `internal/store/postgres/`); a shared test suite (`internal/store/storesuite/`) runs the same assertions against both backends so dialect drift surfaces in tests. Full-text search uses FTS5 on SQLite and `tsvector` + GIN on Postgres — same `/v1/messages/search` contract, dialect-specific ranking. Postgres tests use testcontainers-go (`postgres:16-alpine`) and skip cleanly when Docker is unavailable.
 - **Plan 11 (Docker + CI + examples)** shipped: image published to `ghcr.io/askarzh/whatsmeow-api` on every push to main and on `v*` tags; GitHub Actions CI runs `golangci-lint` + `go test -race` (both dialects via testcontainers) on every PR; `examples/docker-compose/` provides a self-host setup with sqlite + postgres profiles; `examples/cookbook.md` documents every HTTP endpoint with copy-pasteable curl recipes.
+- **Plan 12 (MCP server transport)** shipped: streamable-HTTP MCP transport at `POST/GET /v1/mcp` mounted on the daemon, gated by `WMAPI_MCP__ENABLED` (default on) and reusing the existing bearer-token middleware. 25 tools cover the full REST surface (`wa_status`, `wa_send_text`, `wa_send_media`, `wa_list_chats`, `wa_search_messages`, group ops, login, …) and call directly into `service.Service` — no double-hop through REST. Built on the official `github.com/modelcontextprotocol/go-sdk`.
 
-v1 is complete. Future work — outbound message lifecycle events, group-lifecycle deltas, video/audio/sticker outbound, multi-arch image, helm chart — is tracked in the spec backlog and lives in follow-up plans as real consumer needs surface.
+v1 is complete and MCP is shipped. Future work — outbound message lifecycle events, group-lifecycle deltas, video/audio/sticker outbound, multi-arch image, helm chart — is tracked in the spec backlog and lives in follow-up plans as real consumer needs surface.
 
 ## Quick start
 
@@ -50,6 +51,12 @@ docker run --rm -p 8080:8080 \
 For a self-host setup with Postgres, see [`examples/docker-compose/`](examples/docker-compose/).
 
 For a curl recipe per endpoint, see [`examples/cookbook.md`](examples/cookbook.md).
+
+## Connect from Claude
+
+The daemon speaks MCP over streamable HTTP at `/v1/mcp`. Claude Code, Claude Desktop, and claude.ai can drive every capability through 25 typed tools (`wa_status`, `wa_send_text`, `wa_list_chats`, `wa_search_messages`, …) — Claude calls into `service.Service` directly through the same daemon process, no double-hop through REST. The endpoint reuses the existing bearer-token middleware.
+
+See [`examples/claude-mcp/`](examples/claude-mcp/) for a copy-pasteable setup. The full tool catalog lives in [Plan 12's spec](docs/superpowers/specs/2026-05-13-whatsmeow-api-12-mcp-server-design.md).
 
 ## Configuration
 
