@@ -37,7 +37,14 @@ type fakeService struct {
 	deleteMessageFn  func(context.Context, string) error
 	sendReactionFn   func(context.Context, string, string) error
 	markReadFn       func(context.Context, string) error
-	sendTypingFn     func(context.Context, string, string) error
+	sendTypingFn         func(context.Context, string, string) error
+	loginQRFn            func(context.Context) (<-chan waclient.QREvent, error)
+	loginPhoneFn         func(context.Context, string) (<-chan waclient.PairEvent, error)
+	logoutFn             func(context.Context) error
+	createGroupFn        func(context.Context, string, []string) (waclient.Group, error)
+	listGroupMembersFn   func(context.Context, string) ([]waclient.GroupMember, error)
+	updateGroupMembersFn func(context.Context, string, string, []string) ([]waclient.ParticipantChange, error)
+	leaveGroupFn         func(context.Context, string) error
 }
 
 func (f *fakeService) Status(ctx context.Context) (waclient.Status, error) {
@@ -110,6 +117,34 @@ func (f *fakeService) MarkMessageRead(ctx context.Context, messageID string) err
 
 func (f *fakeService) SendTyping(ctx context.Context, chatJID, state string) error {
 	return f.sendTypingFn(ctx, chatJID, state)
+}
+
+func (f *fakeService) LoginQR(ctx context.Context) (<-chan waclient.QREvent, error) {
+	return f.loginQRFn(ctx)
+}
+
+func (f *fakeService) LoginPhone(ctx context.Context, phoneNumber string) (<-chan waclient.PairEvent, error) {
+	return f.loginPhoneFn(ctx, phoneNumber)
+}
+
+func (f *fakeService) Logout(ctx context.Context) error {
+	return f.logoutFn(ctx)
+}
+
+func (f *fakeService) CreateGroup(ctx context.Context, name string, participantJIDs []string) (waclient.Group, error) {
+	return f.createGroupFn(ctx, name, participantJIDs)
+}
+
+func (f *fakeService) ListGroupMembers(ctx context.Context, groupJID string) ([]waclient.GroupMember, error) {
+	return f.listGroupMembersFn(ctx, groupJID)
+}
+
+func (f *fakeService) UpdateGroupMembers(ctx context.Context, groupJID, action string, participantJIDs []string) ([]waclient.ParticipantChange, error) {
+	return f.updateGroupMembersFn(ctx, groupJID, action, participantJIDs)
+}
+
+func (f *fakeService) LeaveGroup(ctx context.Context, groupJID string) error {
+	return f.leaveGroupFn(ctx, groupJID)
 }
 
 func inMemoryClient(t *testing.T, svc service.Service) (context.Context, *mcpsdk.ClientSession) {
