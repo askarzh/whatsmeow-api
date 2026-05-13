@@ -296,3 +296,48 @@ func TestWATyping_Paused(t *testing.T) {
 	})
 	require.False(t, res.IsError)
 }
+
+func TestWAReact_ForbiddenMapsToToolError(t *testing.T) {
+	svc := &fakeService{
+		sendReactionFn: func(context.Context, string, string) error {
+			return fmt.Errorf("%w: not the sender", service.ErrForbidden)
+		},
+	}
+	ctx, session := inMemoryClient(t, svc)
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "wa_react",
+		Arguments: map[string]any{"message_id": "msg-1", "emoji": "👍"},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+}
+
+func TestWAMarkRead_ForbiddenMapsToToolError(t *testing.T) {
+	svc := &fakeService{
+		markReadFn: func(context.Context, string) error {
+			return fmt.Errorf("%w: not the recipient", service.ErrForbidden)
+		},
+	}
+	ctx, session := inMemoryClient(t, svc)
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "wa_mark_read",
+		Arguments: map[string]any{"message_id": "msg-1"},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+}
+
+func TestWATyping_InvalidStateMapsToToolError(t *testing.T) {
+	svc := &fakeService{
+		sendTypingFn: func(_ context.Context, _, state string) error {
+			return fmt.Errorf("%w: state must be composing or paused, got %q", service.ErrInvalidRequest, state)
+		},
+	}
+	ctx, session := inMemoryClient(t, svc)
+	res, err := session.CallTool(ctx, &mcpsdk.CallToolParams{
+		Name:      "wa_typing",
+		Arguments: map[string]any{"chat_jid": "chat@s.whatsapp.net", "state": "bogus"},
+	})
+	require.NoError(t, err)
+	require.True(t, res.IsError)
+}
